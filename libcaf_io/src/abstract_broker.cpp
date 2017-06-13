@@ -164,6 +164,51 @@ abstract_broker::add_tcp_doorman(uint16_t port, const char* in,
   return std::move(eptr.error());
 }
 
+void abstract_broker::add_dgram_servant(dgram_servant_ptr ptr) {
+  CAF_LOG_TRACE(CAF_ARG(ptr));
+  add_servant(std::move(ptr));
+}
+
+dgram_handle abstract_broker::add_dgram_servant(network::native_socket fd) {
+  CAF_LOG_TRACE(CAF_ARG(fd));
+  return add_servant(backend().new_dgram_servant(fd));
+}
+
+dgram_handle
+abstract_broker::add_dgram_servant_for_endpoint(network::native_socket fd,
+                                                network::ip_endpoint& ep) {
+  CAF_LOG_TRACE(CAF_ARG(fd));
+  return add_servant(backend().new_dgram_servant_for_endpoint(fd, ep));
+}
+
+expected<dgram_handle>
+abstract_broker::add_udp_dgram_servant(const std::string& host,
+                                       uint16_t port) {
+  CAF_LOG_TRACE(CAF_ARG(host) << CAF_ARG(port));
+  auto eptr = backend().new_remote_udp_endpoint(host, port);
+  if (eptr)
+    return add_servant(std::move(*eptr));
+  return std::move(eptr.error());
+}
+
+expected<std::pair<dgram_handle, uint16_t>>
+abstract_broker::add_udp_dgram_servant(uint16_t port, const char* in,
+                                       bool reuse_addr) {
+  CAF_LOG_TRACE(CAF_ARG(port) << CAF_ARG(in) << CAF_ARG(reuse_addr));
+  auto eptr = backend().new_local_udp_endpoint(port, in, reuse_addr);
+  if (eptr) {
+    auto ptr = std::move(*eptr);
+    auto p = ptr->port();
+    return std::make_pair(add_servant(std::move(ptr)), p);
+  }
+  return std::move(eptr.error());
+}
+
+void abstract_broker::move_dgram_servant(dgram_servant_ptr ptr) {
+  CAF_LOG_TRACE(CAF_ARG(ptr));
+  move_servant(std::move(ptr));
+}
+
 std::string abstract_broker::remote_addr(connection_handle hdl) {
   auto i = scribes_.find(hdl);
   return i != scribes_.end() ? i->second->addr() : std::string{};
@@ -225,7 +270,6 @@ void abstract_broker::init_broker() {
   // might call functions like add_connection
   for (auto& kvp : doormen_)
     kvp.second->launch();
-
 }
 
 abstract_broker::abstract_broker(actor_config& cfg) : scheduled_actor(cfg) {
@@ -239,6 +283,11 @@ network::multiplexer& abstract_broker::backend() {
 void abstract_broker::launch_servant(doorman_ptr& ptr) {
   // A doorman needs to be launched in addition to being initialized. This
   // allows CAF to assign doorman to uninitialized brokers.
+  if (getf(is_initialized_flag))
+    ptr->launch();
+}
+
+void abstract_broker::launch_servant(dgram_servant_ptr& ptr) {
   if (getf(is_initialized_flag))
     ptr->launch();
 }

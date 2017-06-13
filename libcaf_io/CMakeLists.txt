@@ -23,6 +23,9 @@ set (LIBCAF_IO_SRCS
      src/test_multiplexer.cpp
      src/acceptor_manager.cpp
      src/multiplexer.cpp
+     src/dgram_servant.cpp
+     src/dgram_manager.cpp
+     src/ip_endpoint.cpp
      # BASP files
      src/header.cpp
      src/message_type.cpp

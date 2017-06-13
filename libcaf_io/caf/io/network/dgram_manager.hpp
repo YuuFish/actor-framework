@@ -17,70 +17,39 @@
  * http://www.boost.org/LICENSE_1_0.txt.                                      *
  ******************************************************************************/
 
-#ifndef CAF_IO_CONNECTION_HANDLE_HPP
-#define CAF_IO_CONNECTION_HANDLE_HPP
+#ifndef CAF_IO_NETWORK_DGRAM_MANAGER_HPP
+#define CAF_IO_NETWORK_DGRAM_MANAGER_HPP
 
-#include <functional>
-
-#include "caf/error.hpp"
-
-#include "caf/io/handle.hpp"
-
-#include "caf/meta/type_name.hpp"
+#include "caf/io/network/manager.hpp"
+#include "caf/io/network/ip_endpoint.hpp"
 
 namespace caf {
 namespace io {
+namespace network {
 
-struct invalid_connection_handle_t {
-  constexpr invalid_connection_handle_t() {
-    // nop
-  }
-};
-
-constexpr invalid_connection_handle_t invalid_connection_handle
-  = invalid_connection_handle_t{};
-
-/// Generic handle type for identifying connections.
-class connection_handle : public handle<connection_handle,
-                                        invalid_connection_handle_t> {
+/// A datagram manager provides callbacks for outgoing
+/// datagrams as well as for error handling.
+class dgram_manager : public manager {
 public:
-  friend class handle<connection_handle, invalid_connection_handle_t>;
+  ~dgram_manager() override;
 
-  using super = handle<connection_handle, invalid_connection_handle_t>;
+  /// Called by the underlying I/O device whenever it received data.
+  /// @returns `true` if the manager accepts further reads, otherwise `false`.
+  virtual bool consume(execution_unit*, std::vector<char>& buf) = 0;
 
-  constexpr connection_handle() {
-    // nop
-  }
+  /// Called by the underlying I/O device whenever it sent data.
+  virtual void datagram_sent(execution_unit*, size_t) = 0;
 
-  constexpr connection_handle(const invalid_connection_handle_t&) {
-    // nop
-  }
-
-  template <class Inspector>
-  friend typename Inspector::result_type inspect(Inspector& f,
-                                                 connection_handle& x) {
-    return f(meta::type_name("connection_handle"), x.id_);
-  }
-
- private:
-  inline connection_handle(int64_t handle_id) : super(handle_id) {
-    // nop
-  }
+  /// Called by the underlying I/O device to indicate that a new remote
+  /// endpoint has been detected.
+  /// @returns `true` if the manager accepts further enpoints,
+  ///          otherwise `false`.
+  virtual bool new_endpoint(ip_endpoint& ep, std::vector<char>& buf) = 0;
 };
 
+} // namespace network
 } // namespace io
 } // namespace caf
 
-namespace std {
+#endif // CAF_IO_NETWORK_DGRAM_MANAGER_HPP
 
-template<>
-struct hash<caf::io::connection_handle> {
-  size_t operator()(const caf::io::connection_handle& hdl) const {
-    hash<int64_t> f;
-    return f(hdl.id());
-  }
-};
-
-} // namespace std
-
-#endif // CAF_IO_CONNECTION_HANDLE_HPP

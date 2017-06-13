@@ -33,11 +33,14 @@
 #include "caf/io/fwd.hpp"
 #include "caf/io/scribe.hpp"
 #include "caf/io/doorman.hpp"
+#include "caf/io/dgram_handle.hpp"
 #include "caf/io/accept_handle.hpp"
 #include "caf/io/receive_policy.hpp"
 #include "caf/io/connection_handle.hpp"
 #include "caf/io/network/operation.hpp"
+#include "caf/io/network/ip_endpoint.hpp"
 #include "caf/io/network/multiplexer.hpp"
+#include "caf/io/network/dgram_manager.hpp"
 #include "caf/io/network/stream_manager.hpp"
 #include "caf/io/network/acceptor_manager.hpp"
 
@@ -67,6 +70,8 @@
 # include <unistd.h>
 # include <cerrno>
 # include <sys/socket.h>
+# include <netinet/in.h>
+# include <netinet/ip.h>
 #endif
 
 // poll xs epoll backend
@@ -204,6 +209,20 @@ struct tcp_policy {
   static write_some_fun write_some;
   static try_accept_fun try_accept;
 };
+//
+/// Write a datagram containing `buf_len` bytes to `fd` addressed
+/// at the endpoint in `sa` with size `sa_len`. Returns true as long
+/// as no IO error occurs. The number of written bytes is stored in
+/// `result`.
+bool read_datagram(size_t& result, native_socket fd, void* buf, size_t buf_len,
+                   ip_endpoint& ep);
+
+/// Reveice a datagram of up to `len` bytes. Larger datagrams are truncated.
+/// Up to `sender_len` bytes of the receiver address is written into
+/// `sender_addr`. Returns `true` if no IO error occurred. The number of
+/// received bytes is stored in `result` (can be 0).
+bool write_datagram(size_t& result, native_socket fd, void* buf, size_t buf_len,
+                    ip_endpoint& ep);
 
 /// Returns the locally assigned port of `fd`.
 expected<uint16_t> local_port_of_fd(native_socket fd);
@@ -321,6 +340,18 @@ public:
   expected<doorman_ptr> new_tcp_doorman(uint16_t port, const char* in,
                                         bool reuse_addr) override;
 
+  dgram_servant_ptr new_dgram_servant(native_socket fd) override;
+
+  dgram_servant_ptr new_dgram_servant_for_endpoint(native_socket fd,
+                                                   ip_endpoint& ep) override;
+
+  expected<dgram_servant_ptr>
+  new_remote_udp_endpoint(const std::string& host, uint16_t port) override;
+
+  expected<dgram_servant_ptr>
+  new_local_udp_endpoint(uint16_t port,const char* in = nullptr,
+                         bool reuse_addr = false) override;
+
   void exec_later(resumable* ptr) override;
 
   explicit default_multiplexer(actor_system* sys);
@@ -340,6 +371,9 @@ public:
   void add(operation op, native_socket fd, event_handler* ptr);
 
   void del(operation op, native_socket fd, event_handler* ptr);
+
+  // UDP stuff
+  int64_t next_endpoint_id();
 
 private:
   // platform-dependent additional initialization code
@@ -400,6 +434,9 @@ private:
   multiplexer_poll_shadow_data shadow_;
   std::pair<native_socket, native_socket> pipe_;
   pipe_reader pipe_reader_;
+
+  // UDP data
+  int64_t dgram_servant_ids_;
 };
 
 inline connection_handle conn_hdl_from_socket(native_socket fd) {
@@ -658,6 +695,234 @@ private:
   ProtocolPolicy policy_;
 };
 
+class dgram_handler : public event_handler {
+// TODO:
+// - Clean up after timeout.
+// - Use trie for IP to ID lookup?
+// - On incoming message, lookup the related dgram servant
+//   and pass its handle upward.
+public:
+  /// A smart pointer to a stream manager.
+  using manager_ptr = intrusive_ptr<dgram_manager>;
+
+  /// A buffer class providing a compatible
+  /// interface to `std::vector`.
+  using buffer_type = std::vector<char>;
+
+  ///
+  using id_type = uint32_t;
+
+  /// a job for sending a datagram
+  using job_type = std::pair<id_type, std::vector<char>>;
+
+  dgram_handler(default_multiplexer& backend_ref, native_socket sockfd);
+
+  /// Configures how much buffer will be provided for the next datagram.
+  /// @warning Must not be called outside the IO multiplexers event loop
+  ///          once the stream has been started.
+  void configure_datagram_size(size_t buf_size);
+
+  /// Starts reading data from the socket, forwarding incoming data to `mgr`.
+  void start(dgram_manager* mgr);
+
+  /// Activates the stream.
+  void activate(dgram_manager* mgr);
+
+  /*
+  /// Configures how much data will be provided for the next `consume` callback.
+  /// @warning Must not be called outside the IO multiplexers event loop
+  ///          once the stream has been started.
+  void configure_read(receive_policy::config config);
+  */
+
+  void ack_writes(bool x);
+
+  /// Copies data to the write buffer.
+  /// @warning Not thread safe.
+  void write(const void* buf, size_t num_bytes);
+
+  /// Returns the write buffer of this stream.
+  /// @warning Must not be modified outside the IO multiplexers event loop
+  ///          once the stream has been started.
+  inline buffer_type& wr_buf(id_type id) {
+    wr_offline_buf_.emplace_back();
+    wr_offline_buf_.back().first = id;
+    return  wr_offline_buf_.back().second;
+  }
+
+  /// Returns the read buffer of this stream.
+  /// @warning Must not be modified outside the IO multiplexers event loop
+  ///          once the stream has been started.
+  inline buffer_type& rd_buf() {
+    return rd_buf_;
+  }
+
+  inline const std::string& host() const {
+    return host_;
+  }
+
+  inline uint16_t port() const {
+    return port_;
+  }
+
+  /// Sends the content of the write buffer, calling the `io_failure`
+  /// member function of `mgr` in case of an error.
+  /// @warning Must not be called outside the IO multiplexers event loop
+  ///          once the stream has been started.
+  void flush(id_type id, ip_endpoint& ep, const manager_ptr& mgr);
+
+  /// Closes the read channel of the underlying socket and removes
+  /// this handler from its parent.
+  void stop_reading();
+
+  void removed_from_loop(operation op) override;
+
+  void add_endpoint(id_type id, ip_endpoint& ep, const manager_ptr mgr);
+//  void remove_endpoint(id_type id);
+//  void remove_endpoint(ip_endpoint& ep);
+
+protected:
+  template <class Policy>
+  void handle_event_impl(io::network::operation op, Policy& policy) {
+    CAF_LOG_TRACE(CAF_ARG(op));
+    auto mcr = max_consecutive_reads();
+    switch (op) {
+      case io::network::operation::read: {
+        // Loop until an error occurs or we have nothing more to read
+        // or until we have handled `mcr` reads.
+        size_t rb;
+        for (size_t i = 0; i < mcr; ++i) {
+          if (!policy.read_datagram(rb, fd(), rd_buf_.data(), rd_buf_.size(),
+                                    sender_)) {
+            reader_->io_failure(&backend(), operation::read);
+            passivate();
+            return;
+          }
+          // TODO:
+          // - look for an existing servant with the ID.
+          // - create new dgram servant with fd() (does this mean, that I
+          //   don't need the lists, because the new servant has the related
+          //   info? Then, I could also use a normal handle and skip all the
+          //   extra IDs ...)
+          // - lookup the related dgram servant
+          // - create a new one if none was found
+          // - set receiver ID
+          // - call consume function
+          // - include ID in comsume function
+          if (rb > 0) {
+            // TODO: sent as the new endpoint
+            auto itr = from_ep_.find(sender_);
+            /*
+            bool res = false;
+            if (itr == from_ep_.end()) {
+              res = reader_->new_endpoint(sender_);
+              // TODO: whatever is needed
+            } else {
+              //auto res = reader_->consume(&backend(), rd_buf_.data(), rb);
+              res = itr->second->writer->consume(&backend(), rd_buf_);
+            }
+            */
+            auto res = (itr == from_ep_.end())
+              ? reader_->new_endpoint(sender_, rd_buf_)
+              : itr->second->writer->consume(&backend(), rd_buf_);
+            bytes_read_ = rb;
+            prepare_next_read();
+            if (!res) {
+              passivate();
+              return;
+            }
+          }
+        }
+        break;
+      }
+      case io::network::operation::write: {
+        size_t wb; // written bytes
+        auto itr = from_id_.find(wr_buf_.first);
+        if (itr == from_id_.end()) {
+          // handle_error
+        }
+        auto& ctx = itr->second;
+        if (!policy.write_datagram(wb, fd(), wr_buf_.second.data(),
+                                   wr_buf_.second.size(), ctx->endpoint)) {
+          ctx->writer->io_failure(&backend(), operation::write);
+          backend().del(operation::write, fd(), this);
+        } else if (wb > 0) {
+          CAF_ASSERT(wb == wr_buf_.size());
+          if (ack_writes_)
+            ctx->writer->datagram_sent(&backend(), wb);
+          prepare_next_write();
+        } else {
+          if (ctx->writer)
+            ctx->writer->io_failure(&backend(), operation::write);
+        }
+        break;
+      }
+      case operation::propagate_error:
+        if (reader_)
+          reader_->io_failure(&backend(), operation::read);
+        for (auto& mngr : from_ep_)
+          mngr.second->writer->io_failure(&backend(), operation::write);
+        // backend will delete this handler anyway,
+        // no need to call backend().del() here
+    }
+  }
+
+private:
+  struct endpoint_data : public ref_counted {
+    endpoint_data(ip_endpoint& ep, manager_ptr ptr);
+    ip_endpoint endpoint;
+    manager_ptr writer;
+  };
+
+  size_t max_consecutive_reads();
+
+  void prepare_next_read();
+
+  void prepare_next_write();
+
+  // state for reading
+  size_t dgram_size_;
+  buffer_type rd_buf_;
+  size_t bytes_read_;
+  manager_ptr reader_;
+
+  std::unordered_map<ip_endpoint, intrusive_ptr<endpoint_data>> from_ep_;
+  std::unordered_map<id_type, intrusive_ptr<endpoint_data>> from_id_;
+
+  // addr of last sender
+  ip_endpoint sender_;
+  std::string host_;
+  uint16_t port_;
+
+  // state for writing
+  bool ack_writes_;
+  bool writing_;
+  std::deque<job_type> wr_offline_buf_;
+  job_type wr_buf_;
+};
+
+/// A concrete dgram_handler with a technology-dependent policy.
+template <class ProtocolPolicy>
+class dgram_handler_impl : public dgram_handler {
+public:
+  template <class... Ts>
+  dgram_handler_impl(default_multiplexer& mpx, native_socket sockfd, Ts&&... xs)
+    : dgram_handler(mpx, sockfd),
+      policy_(std::forward<Ts>(xs)...) {
+    // nop
+  }
+
+  void handle_event(io::network::operation op) override {
+    this->handle_event_impl(op, policy_);
+  }
+
+private:
+  ProtocolPolicy policy_;
+};
+
+std::tuple<std::string, uint16_t>
+sender_from_sockaddr(const sockaddr_storage& sa, size_t len);
+
 expected<native_socket> new_tcp_connection(const std::string& host,
                                            uint16_t port,
                                            optional<protocol> preferred = none);
@@ -719,6 +984,13 @@ protected:
   bool launched_;
   stream_impl<tcp_policy> stream_;
 };
+
+expected<std::pair<native_socket, ip_endpoint>>
+new_remote_udp_endpoint_impl(const std::string& host, uint16_t port,
+                             optional<protocol> preferred = none);
+
+expected<std::pair<native_socket, uint16_t>>
+new_local_udp_endpoint_impl(uint16_t port, const char* addr, bool reuse_addr);
 
 } // namespace network
 } // namespace io

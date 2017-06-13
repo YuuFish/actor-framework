@@ -23,6 +23,7 @@
 
 #include "caf/io/scribe.hpp"
 #include "caf/io/doorman.hpp"
+#include "caf/io/dgram_servant.hpp"
 
 namespace caf {
 namespace io {
@@ -44,6 +45,18 @@ test_multiplexer::doorman_data::doorman_data()
     : port(0),
       stopped_reading(false),
       passive_mode(false) {
+  // nop
+}
+
+test_multiplexer::dgram_servant_data::dgram_servant_data(shared_job_buffer_type input,
+                                                         shared_job_buffer_type output)
+    : vn_buf_ptr(std::move(input)),
+      wr_buf_ptr(std::move(output)),
+      vn_buf(*vn_buf_ptr),
+      wr_buf(*wr_buf_ptr),
+      stopped_reading(false),
+      passive_mode(false),
+      ack_writes(false) {
   // nop
 }
 
@@ -230,12 +243,84 @@ expected<doorman_ptr> test_multiplexer::new_tcp_doorman(uint16_t desired_port,
   return new_doorman(hdl, port);
 }
 
+dgram_servant_ptr test_multiplexer::new_dgram_servant(native_socket) {
+  CAF_ASSERT(std::this_thread::get_id() == tid_);
+  std::cerr << "test_multiplexer::new_dgram_servant called with native socket"
+            << std::endl;
+  abort();
+}
+
+dgram_servant_ptr
+test_multiplexer::new_dgram_servant_for_endpoint(native_socket, ip_endpoint&) {
+  CAF_ASSERT(std::this_thread::get_id() == tid_);
+  std::cerr << "test_multiplexer::new_dgram_servant_for_endpoint called with "
+               "native socket" << std::endl;
+  abort();
+}
+
+expected<dgram_servant_ptr>
+test_multiplexer::new_remote_udp_endpoint(const std::string& host,
+                                          uint16_t port) {
+  static_cast<void>(host);
+  static_cast<void>(port);
+  abort();
+}
+
+expected<dgram_servant_ptr> 
+test_multiplexer::new_local_udp_endpoint(uint16_t desired_port,
+                                         const char*, bool) {
+  CAF_LOG_TRACE(CAF_ARG(desired_port));
+  dgram_handle hdl;
+  uint16_t port = 0;
+  { // Lifetime scope of guard.
+    guard_type guard{mx_};
+    if (desired_port == 0) {
+      // Start with largest possible port and reverse iterate until we find a
+      // port that's not assigned to a known doorman.
+      port = std::numeric_limits<uint16_t>::max();
+      while (is_known_port(port))
+        --port;
+      // Do the same for finding a local dgram handle
+      auto y = std::numeric_limits<int64_t>::max();
+      while (is_known_handle(dgram_handle::from_int(y)))
+        --y;
+      hdl = dgram_handle::from_int(y);
+    } else {
+      auto i = local_endpoints_.find(desired_port);
+      if (i != local_endpoints_.end()) {
+        hdl = i->second;
+        local_endpoints_.erase(i);
+        port = desired_port;
+      } else {
+        return sec::cannot_open_port;
+      }
+    }
+  }
+  return new_dgram_servant(hdl, port);
+}
+
+dgram_servant_ptr test_multiplexer::new_dgram_servant(dgram_handle hdl,
+                                                      uint16_t port) {
+  abort();
+}
+
+dgram_servant_ptr test_multiplexer::new_dgram_servant(dgram_handle,
+                                                      const std::string& host,
+                                                      uint16_t port) {
+  abort();
+}
+
+
 bool test_multiplexer::is_known_port(uint16_t x) const {
-  auto pred = [&](const doorman_data_map::value_type& y) {
+  auto pred1 = [&](const doorman_data_map::value_type& y) {
     return x == y.second.port;
   };
-  return doormen_.count(x) > 0
-         || std::any_of(doorman_data_.begin(), doorman_data_.end(), pred);
+  auto pred2 = [&](const dgram_data_map::value_type& y) {
+    return x == y.second.port;
+  };
+  return (doormen_.count(x) + local_endpoints_.count(x)) > 0
+         || std::any_of(doorman_data_.begin(), doorman_data_.end(), pred1)
+         || std::any_of(dgram_data_.begin(), dgram_data_.end(), pred2);
 }
 
 bool test_multiplexer::is_known_handle(accept_handle x) const {
@@ -244,6 +329,18 @@ bool test_multiplexer::is_known_handle(accept_handle x) const {
   };
   return doorman_data_.count(x) > 0
          || std::any_of(doormen_.begin(), doormen_.end(), pred);
+}
+
+bool test_multiplexer::is_known_handle(dgram_handle x) const {
+  auto pred1 = [&](const pending_local_dgram_endpoints_map::value_type& y) {
+    return x == y.second;
+  };
+  auto pred2 = [&](const pending_remote_dgram_endpoints_map::value_type& y) {
+    return x == y.second;
+  };
+  return dgram_data_.count(x) > 0
+    || std::any_of(local_endpoints_.begin(), local_endpoints_.end(), pred1)
+    || std::any_of(remote_endpoints_.begin(), remote_endpoints_.end(), pred2);
 }
 
 auto test_multiplexer::make_supervisor() -> supervisor_ptr {
@@ -276,6 +373,24 @@ void test_multiplexer::provide_acceptor(uint16_t desired_port,
   CAF_ASSERT(std::this_thread::get_id() == tid_);
   doormen_.emplace(desired_port, hdl);
   doorman_data_[hdl].port = desired_port;
+}
+
+void test_multiplexer::provide_dgram_servant(uint16_t desired_port,
+                                             dgram_handle hdl) {
+  CAF_ASSERT(std::this_thread::get_id() == tid_);
+  CAF_LOG_TRACE(CAF_ARG(desired_port) << CAF_ARG(hdl));
+  guard_type guard{mx_};
+  local_endpoints_.emplace(desired_port, hdl);
+}
+
+void test_multiplexer::provide_dgram_servant(std::string host,
+                                             uint16_t desired_port,
+                                             dgram_handle hdl) {
+  CAF_ASSERT(std::this_thread::get_id() == tid_);
+  CAF_LOG_TRACE(CAF_ARG(host) << CAF_ARG(desired_port) << CAF_ARG(hdl));
+  guard_type guard{mx_};
+  remote_endpoints_.emplace(std::make_pair(std::move(host), desired_port), hdl);
+  dgram_data_[hdl].port = desired_port;
 }
 
 /// The external input buffer should be filled by

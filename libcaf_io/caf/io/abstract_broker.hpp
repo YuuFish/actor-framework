@@ -28,11 +28,13 @@
 #include "caf/detail/intrusive_partitioned_list.hpp"
 
 #include "caf/io/fwd.hpp"
+#include "caf/io/dgram_handle.hpp"
 #include "caf/io/accept_handle.hpp"
 #include "caf/io/receive_policy.hpp"
 #include "caf/io/system_messages.hpp"
 #include "caf/io/connection_handle.hpp"
 
+#include "caf/io/network/dgram_manager.hpp"
 #include "caf/io/network/native_socket.hpp"
 #include "caf/io/network/stream_manager.hpp"
 #include "caf/io/network/acceptor_manager.hpp"
@@ -82,6 +84,7 @@ public:
   // even brokers need friends
   friend class scribe;
   friend class doorman;
+  friend class dgram_servant;
 
   // -- overridden modifiers of abstract_actor ---------------------------------
 
@@ -191,6 +194,34 @@ public:
   add_tcp_doorman(uint16_t port = 0, const char* in = nullptr,
                   bool reuse_addr = false);
 
+  /// Adds the unitialized `enpoint` instance `ptr` to this broker.
+  void add_dgram_servant(dgram_servant_ptr ptr);
+
+  /// Creates and assigns a new `dgram_servant` from a given socket `fd`.
+  dgram_handle add_dgram_servant(network::native_socket fd);
+
+  /// Creates and assigns a new `dgram_servant` from a given socket `fd`
+  /// for the remote endpoint `ep`.
+  dgram_handle add_dgram_servant_for_endpoint(network::native_socket fd,
+                                              network::ip_endpoint& ep);
+
+  /// Creates a new `dgram_servant` for the remote endpoint `host` and `port`.
+  /// @returns The handle to the new `dgram_servant`.
+  expected<dgram_handle>
+  add_udp_dgram_servant(const std::string& host, uint16_t port);
+
+  /// Tries to open a local port and creates a `dgram_servant`managaing it on
+  /// success. If `port == 0`, then the broker will ask the operating system to
+  /// pick a random port.
+  /// @returns The handle of the new `dgram_servant` and the assigned port.
+  expected<std::pair<dgram_handle, uint16_t>>
+  add_udp_dgram_servant(uint16_t port = 0, const char* in = nullptr,
+                        bool reuse_addr = false);
+
+  /// Moves an initialized `dgram_servant` instance `ptr` from another broker to
+  /// this one.
+  void move_dgram_servant(dgram_servant_ptr ptr);
+
   /// Returns the remote address associated to `hdl`
   /// or empty string if `hdl` is invalid.
   std::string remote_addr(connection_handle hdl);
@@ -270,6 +301,8 @@ protected:
   using scribe_map = std::unordered_map<connection_handle,
                                         intrusive_ptr<scribe>>;
 
+  using dgram_servant_map = std::unordered_map<dgram_handle,
+                                               intrusive_ptr<dgram_servant>>;
   /// @cond PRIVATE
 
   // meta programming utility
@@ -282,11 +315,18 @@ protected:
     return scribes_;
   }
 
+  inline dgram_servant_map& get_map(dgram_handle) {
+    return dgram_servants_;
+  }
+
   // meta programming utility (not implemented)
   static intrusive_ptr<doorman> ptr_of(accept_handle);
 
   // meta programming utility (not implemented)
   static intrusive_ptr<scribe> ptr_of(connection_handle);
+
+  // meta programming utility (not implemented)
+  static intrusive_ptr<dgram_servant> ptr_of(dgram_handle);
 
   /// @endcond
 
@@ -322,6 +362,8 @@ private:
 
   void launch_servant(doorman_ptr& ptr);
 
+  void launch_servant(dgram_servant_ptr& ptr);
+
   template <class T>
   typename T::handle_type add_servant(intrusive_ptr<T>&& ptr) {
     CAF_ASSERT(ptr != nullptr);
@@ -345,6 +387,7 @@ private:
 
   scribe_map scribes_;
   doorman_map doormen_;
+  dgram_servant_map dgram_servants_;
   detail::intrusive_partitioned_list<mailbox_element, detail::disposer> cache_;
   std::vector<char> dummy_wr_buf_;
 };

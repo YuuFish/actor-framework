@@ -40,6 +40,7 @@ class broker;
 class doorman;
 class middleman;
 class basp_broker;
+class dgram_servant;
 class receive_policy;
 class abstract_broker;
 
@@ -47,6 +48,7 @@ class abstract_broker;
 
 using scribe_ptr = intrusive_ptr<scribe>;
 using doorman_ptr = intrusive_ptr<doorman>;
+using dgram_servant_ptr = intrusive_ptr<dgram_servant>;
 
 // -- nested namespaces --------------------------------------------------------
 

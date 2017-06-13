@@ -30,6 +30,7 @@
 
 #include "caf/io/scribe.hpp"
 #include "caf/io/doorman.hpp"
+#include "caf/io/dgram_servant.hpp"
 #include "caf/io/abstract_broker.hpp"
 
 #include "caf/mixin/sender.hpp"

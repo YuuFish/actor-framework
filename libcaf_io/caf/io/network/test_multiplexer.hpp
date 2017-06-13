@@ -47,6 +47,18 @@ public:
   expected<doorman_ptr> new_tcp_doorman(uint16_t prt, const char* in,
                                         bool reuse_addr) override;
 
+  dgram_servant_ptr new_dgram_servant(native_socket fd) override;
+
+  dgram_servant_ptr
+  new_dgram_servant_for_endpoint(native_socket fd, ip_endpoint& ep) override;
+
+  expected<dgram_servant_ptr>
+  new_remote_udp_endpoint(const std::string& host, uint16_t port) override;
+
+  expected<dgram_servant_ptr>
+  new_local_udp_endpoint(uint16_t port, const char* in = nullptr,
+                         bool reuse_addr = false) override;
+
   /// Checks whether `x` is assigned to any known doorman or is user-provided
   /// for future assignment.
   bool is_known_port(uint16_t x) const;
@@ -54,6 +66,8 @@ public:
   /// Checks whether `x` is assigned to any known doorman or is user-provided
   /// for future assignment.
   bool is_known_handle(accept_handle x) const;
+
+  bool is_known_handle(dgram_handle x) const;
 
   supervisor_ptr make_supervisor() override;
 
@@ -67,15 +81,28 @@ public:
 
   doorman_ptr new_doorman(accept_handle, uint16_t port);
 
+  dgram_servant_ptr new_dgram_servant(dgram_handle, uint16_t port);
+
+  dgram_servant_ptr new_dgram_servant(dgram_handle, const std::string& host,
+                                      uint16_t port);
+
   void provide_scribe(std::string host, uint16_t desired_port,
                       connection_handle hdl);
 
   void provide_acceptor(uint16_t desired_port, accept_handle hdl);
 
+  void provide_dgram_servant(uint16_t desired_port, dgram_handle hdl);
+
+  void provide_dgram_servant(std::string host, uint16_t desired_port,
+                             dgram_handle hdl);
+
   /// A buffer storing bytes.
   using buffer_type = std::vector<char>;
+  using job_type = std::pair<int64_t, buffer_type>;
+  using job_buffer_type = std::deque<job_type>;
 
   using shared_buffer_type = std::shared_ptr<buffer_type>;
+  using shared_job_buffer_type = std::shared_ptr<job_buffer_type>;
 
   /// Models pending data on the network, i.e., the network
   /// input buffer usually managed by the operating system.
@@ -132,6 +159,11 @@ public:
                                        connection_handle>;
 
   using pending_doorman_map = std::unordered_map<uint16_t, accept_handle>;
+
+  using pending_local_dgram_endpoints_map = std::map<uint16_t, dgram_handle>;
+
+  using pending_remote_dgram_endpoints_map
+    = std::map<std::pair<std::string, uint16_t>, dgram_handle>;
 
   bool has_pending_scribe(std::string x, uint16_t y);
 
@@ -223,19 +255,44 @@ private:
     doorman_data();
   };
 
+  struct dgram_servant_data {
+    shared_job_buffer_type vn_buf_ptr;
+    shared_job_buffer_type wr_buf_ptr;
+    job_buffer_type& vn_buf;
+    job_buffer_type& wr_buf;
+    job_type rd_buf;
+    dgram_servant_ptr ptr;
+    bool stopped_reading;
+    bool passive_mode;
+    bool ack_writes;
+    uint16_t port;
+
+    // Allows creating an entangled scribes where the input of this scribe is
+    // the output of another scribe and vice versa.
+    dgram_servant_data(
+      shared_job_buffer_type input = std::make_shared<job_buffer_type>(),
+      shared_job_buffer_type output = std::make_shared<job_buffer_type>()
+    );
+  };
+
   using scribe_data_map = std::unordered_map<connection_handle, scribe_data>;
 
   using doorman_data_map = std::unordered_map<accept_handle, doorman_data>;
+
+  using dgram_data_map = std::unordered_map<dgram_handle, dgram_servant_data>;
 
   // guards resumables_ and scribes_
   std::mutex mx_;
   std::condition_variable cv_;
   std::list<resumable_ptr> resumables_;
   pending_scribes_map scribes_;
-  std::unordered_map<uint16_t, accept_handle> doormen_;
+  pending_doorman_map doormen_;
+  pending_local_dgram_endpoints_map local_endpoints_;
+  pending_remote_dgram_endpoints_map remote_endpoints_;
   scribe_data_map scribe_data_;
   doorman_data_map doorman_data_;
   pending_connects_map pending_connects_;
+  dgram_data_map dgram_data_;
 
   // extra state for making sure the test multiplexer is not used in a
   // multithreaded setup
