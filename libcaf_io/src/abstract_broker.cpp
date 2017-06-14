@@ -109,6 +109,45 @@ void abstract_broker::flush(connection_handle hdl) {
     x->flush();
 }
 
+void abstract_broker::ack_writes(dgram_handle hdl, bool enable) {
+  CAF_LOG_TRACE(CAF_ARG(hdl) << CAF_ARG(enable));
+  auto x = by_id(hdl);
+  if (x)
+    x->ack_writes(enable);
+}
+
+void abstract_broker::configure_datagram_size(dgram_handle hdl,
+                                              size_t buf_size) {
+  CAF_LOG_TRACE(CAF_ARG(hdl) << CAF_ARG(buf_size));
+  auto x = by_id(hdl);
+  if (x)
+    x->configure_datagram_size(buf_size);
+}
+
+std::vector<char>& abstract_broker::wr_buf(dgram_handle hdl) {
+  auto x = by_id(hdl);
+  if (!x) {
+    CAF_LOG_ERROR("tried to access wr_buf() of an unknown"
+                  "dgram_scribe_handle");
+    return dummy_wr_buf_;
+  }
+  return x->wr_buf();
+}
+
+void abstract_broker::write(dgram_handle hdl, size_t bs,
+                            const void* buf) {
+  auto& out = wr_buf(hdl);
+  auto first = reinterpret_cast<const char*>(buf);
+  auto last = first + bs;
+  out.insert(out.end(), first, last);
+}
+
+void abstract_broker::flush(dgram_handle hdl) {
+  auto x = by_id(hdl);
+  if (x)
+    x->flush();
+}
+
 std::vector<connection_handle> abstract_broker::connections() const {
   std::vector<connection_handle> result;
   result.reserve(scribes_.size());
@@ -234,6 +273,21 @@ accept_handle abstract_broker::hdl_by_port(uint16_t port) {
     if (kvp.second->port() == port)
       return kvp.first;
   return invalid_accept_handle;
+}
+
+std::string abstract_broker::remote_addr(dgram_handle hdl) {
+  auto i = dgram_servants_.find(hdl);
+  return i != dgram_servants_.end() ? i->second->addr() : std::string{};
+}
+
+uint16_t abstract_broker::remote_port(dgram_handle hdl) {
+  auto i = dgram_servants_.find(hdl);
+  return i != dgram_servants_.end() ? i->second->port() : 0;
+}
+
+uint16_t abstract_broker::local_port(dgram_handle hdl) {
+  auto i = dgram_servants_.find(hdl);
+  return i != dgram_servants_.end() ? i->second->local_port() : 0;
 }
 
 void abstract_broker::close_all() {

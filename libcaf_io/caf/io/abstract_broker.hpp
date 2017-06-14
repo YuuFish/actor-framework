@@ -156,6 +156,23 @@ public:
   /// Sends the content of the buffer for given connection.
   void flush(connection_handle hdl);
 
+  /// Enables or disables write notifications for given datagram socket.
+  void ack_writes(dgram_handle hdl, bool enable);
+
+  /// Modifies the buffer for received datagrams.
+  /// @param hdl Identifies the affected socket.
+  /// @param buf_size Size of the receiver buffer for the next datagram.
+  void configure_datagram_size(dgram_handle hdl, size_t buf_size);
+
+  /// Returns write buffer for given sink.
+  std::vector<char>& wr_buf(dgram_handle hdl);
+
+  /// Writes `data` into the buffer of a given sink.
+  void write(dgram_handle hdl, size_t data_size, const void* data);
+
+  /// Sends the content of the buffer for given connection.
+  void flush(dgram_handle hdl);
+
   /// Returns the middleman instance this broker belongs to.
   inline middleman& parent() {
     return system().middleman();
@@ -239,6 +256,18 @@ public:
 
   /// Returns the handle associated to given local `port` or `none`.
   accept_handle hdl_by_port(uint16_t port);
+
+  /// Returns the remote address associated to `hdl`
+  /// or empty string if `hdl` is invalid.
+  std::string remote_addr(dgram_handle hdl);
+
+  /// Returns the remote port associated to `hdl`
+  /// or `0` if `hdl` is invalid.
+  uint16_t remote_port(dgram_handle hdl);
+
+  /// Returns the remote port associated to `hdl`
+  /// or `0` if `hdl` is invalid.
+  uint16_t local_port(dgram_handle hdl);
 
   /// Closes all connections and acceptors.
   void close_all();

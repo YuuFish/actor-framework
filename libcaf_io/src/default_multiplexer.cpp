@@ -978,6 +978,12 @@ dgram_servant_ptr default_multiplexer::new_dgram_servant(native_socket fd) {
         return 0;
       return *x;
     }
+    uint16_t local_port() const override {
+      auto x = local_port_of_fd(handler_ptr_->fd());
+      if (!x)
+        return 0;
+      return *x;
+    }
     // TODO: should this be a constructor argument?
     void add_endpoint(ip_endpoint& ep) override {
       ep_ = ep;

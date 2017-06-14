@@ -222,6 +222,9 @@ private:
   published_actor_map published_actors_;
   node_id this_node_;
   callee& callee_;
+  flush_visitor flush_;
+  wr_buf_visitor wr_buf_;
+  //sequence_number_visitor seq_num_;
 };
 
 /// @}

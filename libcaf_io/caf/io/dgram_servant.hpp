@@ -60,6 +60,11 @@ public:
   /// content of the buffer via the network.
   virtual void flush() = 0;
 
+  /// Returns the local port of associated socket.
+  virtual uint16_t local_port() const = 0;
+
+  /// Adds a new remote endpoint identified by the `ip_endpoint` to
+  /// the related manager.
   virtual void add_endpoint(network::ip_endpoint& ep) = 0;
 
   void io_failure(execution_unit* ctx, network::operation op) override;

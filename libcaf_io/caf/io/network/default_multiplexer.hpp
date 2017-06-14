@@ -439,14 +439,6 @@ private:
   int64_t dgram_servant_ids_;
 };
 
-inline connection_handle conn_hdl_from_socket(native_socket fd) {
-  return connection_handle::from_int(int64_from_native_socket(fd));
-}
-
-inline accept_handle accept_hdl_from_socket(native_socket fd) {
-  return accept_handle::from_int(int64_from_native_socket(fd));
-}
-
 /// A stream capable of both reading and writing. The stream's input
 /// data is forwarded to its {@link stream_manager manager}.
 class stream : public event_handler {

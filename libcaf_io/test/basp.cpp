@@ -786,6 +786,11 @@ CAF_TEST(automatic_connection) {
   // jupiter [remote hdl 0] -> mars [remote hdl 1] -> earth [this_node]
   // (this node receives a message from jupiter via mars and responds via mars,
   //  but then also establishes a connection to jupiter directly)
+  auto check_node_in_tbl = [&](node& n) {
+    io::id_visitor id_vis;
+    auto hdl = tbl().lookup_direct(n.id);
+    CAF_CHECK_EQUAL(hdl && visit(id_vis, *hdl), n.connection.id());
+  };
   mpx()->provide_scribe("jupiter", 8080, jupiter().connection);
   CAF_CHECK(mpx()->has_pending_scribe("jupiter", 8080));
   CAF_MESSAGE("self: " << to_string(self()->address()));
@@ -795,7 +800,8 @@ CAF_TEST(automatic_connection) {
   mpx()->flush_runnables(); // process publish message in basp_broker
   CAF_MESSAGE("connect to mars");
   connect_node(mars(), ax, self()->id());
-  CAF_CHECK_EQUAL(tbl().lookup_direct(mars().id).id(), mars().connection.id());
+  //CAF_CHECK_EQUAL(tbl().lookup_direct(mars().id).id(), mars().connection.id());
+  check_node_in_tbl(mars());
   CAF_MESSAGE("simulate that an actor from jupiter "
               "sends a message to us via mars");
   mock(mars().connection,
@@ -861,9 +867,11 @@ CAF_TEST(automatic_connection) {
           invalid_actor_id, invalid_actor_id, std::string{});
   CAF_CHECK_EQUAL(tbl().lookup_indirect(jupiter().id), none);
   CAF_CHECK_EQUAL(tbl().lookup_indirect(mars().id), none);
-  CAF_CHECK_EQUAL(tbl().lookup_direct(jupiter().id).id(),
-                  jupiter().connection.id());
-  CAF_CHECK_EQUAL(tbl().lookup_direct(mars().id).id(), mars().connection.id());
+  //CAF_CHECK_EQUAL(tbl().lookup_direct(jupiter().id).id(),
+  //                jupiter().connection.id());
+  //CAF_CHECK_EQUAL(tbl().lookup_direct(mars().id).id(), mars().connection.id());
+  check_node_in_tbl(jupiter());
+  check_node_in_tbl(mars());
   CAF_MESSAGE("receive message from jupiter");
   self()->receive(
     [](const std::string& str) -> std::string {

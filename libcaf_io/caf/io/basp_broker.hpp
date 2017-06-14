@@ -36,7 +36,9 @@
 
 #include "caf/io/basp/all.hpp"
 #include "caf/io/broker.hpp"
+#include "caf/io/visitors.hpp"
 #include "caf/io/typed_broker.hpp"
+#include "caf/io/endpoint_context.hpp"
 
 namespace caf {
 namespace io {
@@ -58,6 +60,9 @@ struct basp_broker_state : proxy_registry::backend, basp::instance::callee {
 
   // inherited from basp::instance::listener
   void purge_state(const node_id& nid) override;
+
+  void purge(connection_handle hdl);
+  void purge(dgram_handle hdl);
 
   // inherited from basp::instance::listener
   void proxy_announced(const node_id& nid, actor_id aid) override;
@@ -91,23 +96,33 @@ struct basp_broker_state : proxy_registry::backend, basp::instance::callee {
     // nop
   }
 
-  // stores meta information for open connections
-  struct connection_context {
-    // denotes what message we expect from the remote node next
-    basp::connection_state cstate;
-    // our currently processed BASP header
-    basp::header hdr;
-    // the connection handle for I/O operations
-    connection_handle hdl;
-    // network-agnostic node identifier
-    node_id id;
-    // connected port
-    uint16_t remote_port;
-    // pending operations to be performed after handhsake completed
-    optional<response_promise> callback;
-  };
-
   void set_context(connection_handle hdl);
+  void set_context(dgram_handle hdl);
+
+  // visitors to handle variants
+  struct purge_visitor {
+    using result_type = void;
+    purge_visitor(basp_broker_state* ptr) : state{ptr} { }
+    template <class T>
+    result_type operator()(const T& hdl) {
+      return state->purge(hdl);
+    }
+    basp_broker_state* state;
+  };
+  /*
+  struct sequence_number_visitor {
+    using result_type = uint16_t;
+    sequence_number_visitor(basp_broker_state* ptr) : state{ptr} { }
+    template <class T>
+    result_type operator()(const T& hdl) {
+      return state->next_sequence_number(hdl);
+    }
+    basp_broker_state* state;
+  };
+  */
+  wr_buf_visitor wr_buf_vis;
+  purge_visitor purge_state_vis;
+  //sequence_number_visitor seq_num_vis;
 
   // pointer to ourselves
   broker* self;
@@ -115,13 +130,12 @@ struct basp_broker_state : proxy_registry::backend, basp::instance::callee {
   // protocol instance of BASP
   basp::instance instance;
 
-  using ctx_map = std::unordered_map<connection_handle, connection_context>;
-
   // keeps context information for all open connections
-  ctx_map ctx;
+  std::unordered_map<connection_handle, endpoint_context> ctx_tcp;
+  std::unordered_map<dgram_handle, endpoint_context> ctx_udp;
 
   // points to the current context for callbacks such as `make_proxy`
-  connection_context* this_context = nullptr;
+  endpoint_context* this_context = nullptr;
 
   // stores handles to spawn servers for other nodes; these servers
   // are spawned whenever the broker learns a new node ID and try to
@@ -151,6 +165,11 @@ public:
   behavior make_behavior() override;
   proxy_registry* proxy_registry_ptr() override;
   resume_result resume(execution_unit*, size_t) override;
+
+private:
+  addr_visitor addr_;
+  port_visitor port_;
+  wr_buf_visitor wr_buf_;
 };
 
 } // namespace io
