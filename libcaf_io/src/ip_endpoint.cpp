@@ -21,32 +21,6 @@
 
 #include "caf/logger.hpp"
 
-namespace {
-
-constexpr uint8_t byte_at(int i) {
-  // std::array<uint8_t, 12> static_bytes{
-  //   {0x00, 0x00, 0x00, 0x00,
-  //    0x00, 0x00, 0x00, 0x00,
-  //    0x00, 0x00, 0xFF, 0xFF}
-  // };
-  return i > 11
-    ? throw std::exception() // the embedded prefix is only 12 bytes long
-    : i < 10 ? 0x00 : 0xFF;
-}
-
-constexpr size_t prehash(int i) {
-  return (i > 0)
-    ? (prehash(i - 1) * conf.prime) ^ byte_at(i)
-    : (conf.basis * conf.prime) ^ byte_at(i);
-}
-
-constexpr size_t prehash() {
-  // 12 bytes, so pos 11 to 0
-  return prehash(11);
-}
-
-} // namespace <anonymous>
-
 namespace caf {
 namespace io {
 namespace network {
@@ -55,7 +29,7 @@ ip_hash::ip_hash() {
   // nop
 }
 
-size_t ip_hash::operator()(const struct sockaddr_storage& sa) const noexcept {
+size_t ip_hash::operator()(const sockaddr_storage& sa) const noexcept {
   switch (sa.ss_family) {
     case AF_INET:
       return hash(reinterpret_cast<const struct sockaddr_in*>(&sa));
@@ -67,38 +41,33 @@ size_t ip_hash::operator()(const struct sockaddr_storage& sa) const noexcept {
   }
 }
 
-size_t ip_hash::hash(const struct sockaddr_in* sa) const noexcept {
+size_t ip_hash::hash(const sockaddr_in* sa) const noexcept {
   auto& addr = sa->sin_addr;
   size_t res = prehash();
   // the first loop was replaces with `constexpr size_t prehash()`
-  //size_t res = conf_.basis;
-  //for (int i = 0; i < 12; ++i) {
-    //res = res * conf_.prime;
-    //res = res ^ ipv4_embedded_prefix_[i];
-  //}
   for (int i = 0; i < 4; ++i) {
-    res = res * conf.prime;
+    res = res * hash_conf<>::prime;
     res = res ^ ((addr.s_addr >> i) & 0xFF);
   }
   // TODO: separate address and port ?
-  res = res * conf.prime;
+  res = res * hash_conf<>::prime;
   res = res ^ (sa->sin_port >> 1);
-  res = res * conf.prime;
+  res = res * hash_conf<>::prime;
   res = res ^ (sa->sin_port & 0xFF);
   return res;
 }
 
-size_t ip_hash::hash(const struct sockaddr_in6* sa) const noexcept {
+size_t ip_hash::hash(const sockaddr_in6* sa) const noexcept {
   auto& addr = sa->sin6_addr;
-  size_t res = conf.basis;
+  size_t res = hash_conf<>::basis;
   for (int i = 0; i < 16; ++i) {
-    res = res * conf.prime;
+    res = res * hash_conf<>::prime;
     res = res ^ addr.s6_addr[i];
   }
   // TODO: separate address and port ?
-  res = res * conf.prime;
+  res = res * hash_conf<>::prime;
   res = res ^ (sa->sin6_port >> 1);
-  res = res * conf.prime;
+  res = res * hash_conf<>::prime;
   res = res ^ (sa->sin6_port & 0xFF);
   return res;
 }

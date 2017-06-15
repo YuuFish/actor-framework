@@ -43,12 +43,8 @@
 
 namespace {
 
-template <int Bits>
-struct hash_conf {
-  static_assert(Bits != 4 || Bits != 8, "Unspported hash length.");
-  static constexpr uint32_t basis = 0;
-  static constexpr uint32_t prime = 0;
-};
+template <int Bytes = sizeof(size_t)>
+struct hash_conf;
 
 template <>
 struct hash_conf<4> {
@@ -62,11 +58,17 @@ struct hash_conf<8> {
   static constexpr uint64_t prime = 1099511628211u;
 };
 
-constexpr hash_conf<sizeof(size_t)> conf;
+constexpr uint8_t static_bytes[] = {
+  0x00, 0x00, 0x00, 0x00,
+  0x00, 0x00, 0x00, 0x00,
+  0x00, 0x00, 0xFF, 0xFF
+};
 
-constexpr uint8_t byte_at(int i);
-constexpr size_t prehash(int i);
-constexpr size_t prehash();
+constexpr size_t prehash(int i = 11) {
+  return (i > 0)
+    ? (prehash(i - 1) * hash_conf<>::prime) ^ static_bytes[i]
+    : (hash_conf<>::basis * hash_conf<>::prime) ^ static_bytes[i];
+}
 
 } // namespace <anonymous>
 
@@ -82,13 +84,13 @@ namespace network {
 class ip_hash {
 public:
   ip_hash();
-  size_t operator()(const struct sockaddr_storage& sa) const noexcept;
-  size_t hash(const struct sockaddr_in* sa) const noexcept;
-  size_t hash(const struct sockaddr_in6* sa) const noexcept;
+  size_t operator()(const sockaddr_storage& sa) const noexcept;
+  size_t hash(const sockaddr_in* sa) const noexcept;
+  size_t hash(const sockaddr_in6* sa) const noexcept;
 };
 
 struct ip_endpoint {
-  struct sockaddr_storage addr;
+  sockaddr_storage addr;
   socklen_t len;
 };
 
