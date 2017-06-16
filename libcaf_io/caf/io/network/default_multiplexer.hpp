@@ -702,7 +702,7 @@ public:
   using buffer_type = std::vector<char>;
 
   /// ID type to identify dgram servants
-  using id_type = int32_t;
+  using id_type = int64_t;
 
   /// a job for sending a datagram
   using job_type = std::pair<id_type, std::vector<char>>;
@@ -981,8 +981,9 @@ expected<std::pair<native_socket, ip_endpoint>>
 new_remote_udp_endpoint_impl(const std::string& host, uint16_t port,
                              optional<protocol> preferred = none);
 
-expected<std::pair<native_socket, uint16_t>>
-new_local_udp_endpoint_impl(uint16_t port, const char* addr, bool reuse_addr);
+expected<native_socket> new_local_udp_endpoint_impl(uint16_t port,
+                                                    const char* addr,
+                                                    bool reuse_addr = false);
 
 } // namespace network
 } // namespace io

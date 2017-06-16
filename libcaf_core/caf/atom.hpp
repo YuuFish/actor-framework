@@ -141,6 +141,9 @@ using unlink_atom = atom_constant<atom("unlink")>;
 /// Used for publishing actors at a given port.
 using publish_atom = atom_constant<atom("publish")>;
 
+/// Used for publishing actors at a given port.
+using publish_udp_atom = atom_constant<atom("pub_udp")>;
+
 /// Used for removing an actor/port mapping.
 using unpublish_atom = atom_constant<atom("unpublish")>;
 
@@ -152,6 +155,9 @@ using unsubscribe_atom = atom_constant<atom("unsubscrib")>;
 
 /// Used for establishing network connections.
 using connect_atom = atom_constant<atom("connect")>;
+
+/// Used for contacting a remote UDP endpoint
+using contact_atom = atom_constant<atom("contact")>;
 
 /// Used for opening ports or files.
 using open_atom = atom_constant<atom("open")>;

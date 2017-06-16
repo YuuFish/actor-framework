@@ -745,7 +745,7 @@ behavior basp_broker::make_behavior() {
       // await server handshake
       configure_read(hdl, receive_policy::exactly(basp::header_size));
     },
-    [=](publish_atom, dgram_servant_ptr& ptr, uint16_t port,
+    [=](publish_udp_atom, dgram_servant_ptr& ptr, uint16_t port,
         const strong_actor_ptr& whom, std::set<std::string>& sigs) {
       CAF_LOG_TRACE(CAF_ARG(ptr) << CAF_ARG(port)
                     << CAF_ARG(whom) << CAF_ARG(sigs));
@@ -753,12 +753,11 @@ behavior basp_broker::make_behavior() {
       add_dgram_servant(std::move(ptr));
       if (whom)
         system().registry().put(whom->id(), whom);
+      // TODO: should the actor be added it whom is not valid? (same for tcp)
       state.instance.add_published_actor(port, whom, std::move(sigs));
     },
     // received from middleman actor (delegated)
-    // TODO: Use a different atom, such as `contact`?
-    [=](connect_atom, dgram_servant_ptr& ptr,
-        const std::string&, uint16_t port) {
+    [=](contact_atom, dgram_servant_ptr& ptr, uint16_t port) {
       CAF_LOG_TRACE(CAF_ARG(ptr) << CAF_ARG(host) << CAF_ARG(port));
       auto rp = make_response_promise();
       auto hdl = ptr->hdl();
@@ -776,6 +775,12 @@ behavior basp_broker::make_behavior() {
       flush(hdl);
       // TODO: fix buffer size determination
       configure_datagram_size(hdl, 1500);
+    },
+    // received from underlying broker implementation
+    [=](const dgram_servant_closed_msg& msg) {
+      CAF_LOG_TRACE("");
+      auto port = local_port(msg.handle);
+      state.instance.remove_published_actor(port);
     },
     [=](delete_atom, const node_id& nid, actor_id aid) {
       CAF_LOG_TRACE(CAF_ARG(nid) << ", " << CAF_ARG(aid));

@@ -1034,7 +1034,7 @@ default_multiplexer::new_local_udp_endpoint(uint16_t port, const char* in,
                                             bool reuse_addr) {
   auto res = new_local_udp_endpoint_impl(port, in, reuse_addr);
   if (res)
-    return new_dgram_servant(res->first);
+    return new_dgram_servant(*res);
   return std::move(res.error());
 }
 
@@ -1337,30 +1337,6 @@ void dgram_handler::removed_from_loop(operation op) {
   };
 }
 
-std::tuple<std::string, uint16_t>
-sender_from_sockaddr(const sockaddr_storage& sa, size_t) {
-  uint16_t port = 0;
-  char addr[INET6_ADDRSTRLEN];
-  switch(sa.ss_family) {
-    case AF_INET:
-      port = ntohs(reinterpret_cast<const sockaddr_in*>(&sa)->sin_port);
-      inet_ntop(AF_INET,
-                &reinterpret_cast<const sockaddr_in*>(&sa)->sin_addr,
-                addr, INET_ADDRSTRLEN);
-      break;
-    case AF_INET6:
-      port = ntohs(reinterpret_cast<const sockaddr_in6*>(&sa)->sin6_port);
-      inet_ntop(AF_INET6,
-                &reinterpret_cast<const sockaddr_in*>(&sa)->sin_addr,
-                addr, INET6_ADDRSTRLEN);
-      break;
-    default:
-      addr[0] = '\0';
-      break;
-  }
-  return std::make_tuple(std::string(addr),port);
-}
-
 size_t dgram_handler::max_consecutive_reads() {
   return backend().system().config().middleman_max_consecutive_reads;
 }
@@ -1602,32 +1578,19 @@ expected<std::pair<native_socket, ip_endpoint>>
 new_remote_udp_endpoint_impl(const std::string& host, uint16_t port,
                              optional<protocol> preferred) {
   CAF_LOG_TRACE(CAF_ARG(host) << CAF_ARG(port) << CAF_ARG(preferred));
-  CAF_LOG_INFO("try to create dgram scribe for:" << CAF_ARG(host)
-                                                 << CAF_ARG(port));
-  auto res = interfaces::native_address(host, preferred);
-  if (!res) {
-    CAF_LOG_INFO("no such host");
-    return make_error(sec::cannot_connect_to_node, "no such host", host, port);
-  }
-  auto proto = res->second;
-  CAF_ASSERT(proto == ipv4 || proto == ipv6);
-  CALL_CFUN(fd, cc_valid_socket, "socket",
-            socket(proto == ipv4 ? AF_INET : AF_INET6, SOCK_DGRAM, 0));
-  socket_guard sguard(fd);
-  auto hostname = res->first.c_str();
   // TODO: Include a setting for reuse addr (currently always false)
   auto reuse = false;
-  auto any = true;
-  auto p = proto == ipv4
-       ? new_ip_acceptor_impl<AF_INET>(port, hostname, reuse, any, SOCK_DGRAM)
-       : new_ip_acceptor_impl<AF_INET6>(port, hostname, reuse, any, SOCK_DGRAM);
-  if (!p)
-    return std::move(p.error());
-  // result tuple
+  auto ep = new_local_udp_endpoint_impl(0, nullptr, reuse);
+  if (!ep)
+    return ep.error();
+  socket_guard sguard{*ep};
+  auto res = interfaces::native_address(host, preferred);
+  if (!res)
+    return make_error(sec::cannot_connect_to_node, "no such host", host, port);
   std::pair<native_socket, ip_endpoint> info;
+  CAF_ASSERT(res->second == ipv4 || res->second == ipv6);
   // create sockaddr_storage from host information
-  // TODO: create new native_address func that returns a sockaddr_storage
-  get<0>(info) = std::move(sguard.release());
+  // TODO: create new "native_address" func that returns a sockaddr_storage
   auto& re = get<1>(info);
   memset(&re.addr, 0, sizeof(sockaddr_storage));
   switch (res->second) {
@@ -1651,10 +1614,11 @@ new_remote_udp_endpoint_impl(const std::string& host, uint16_t port,
       return make_error(sec::cannot_connect_to_node, "unknown IP version",
                         host, port);
   }
+  get<0>(info) = sguard.release();
   return info;
 }
 
-expected<std::pair<native_socket, uint16_t>>
+expected<native_socket>
 new_local_udp_endpoint_impl(uint16_t port, const char* addr, bool reuse) {
   CAF_LOG_TRACE(CAF_ARG(port) << ", addr = " << (addr ? addr : "nullptr"));
   auto addrs = interfaces::server_address(port, addr);
@@ -1677,16 +1641,13 @@ new_local_udp_endpoint_impl(uint16_t port, const char* addr, bool reuse) {
     break;
   }
   if (fd == invalid_native_socket) {
-    CAF_LOG_WARNING("could not open tcp socket on:" << CAF_ARG(port)
+    CAF_LOG_WARNING("could not open udp socket on:" << CAF_ARG(port)
                     << CAF_ARG(addr_str));
-    return make_error(sec::cannot_open_port, "tcp socket creation failed",
+    return make_error(sec::cannot_open_port, "udp socket creation failed",
                       port, addr_str);
   }
-  socket_guard sguard{fd};
-  CALL_CFUN(tmp2, cc_zero, "listen", listen(fd, SOMAXCONN));
-  // ok, no errors so far
   CAF_LOG_DEBUG(CAF_ARG(fd));
-  return std::make_pair(sguard.release(), port);
+  return fd;
 }
 
 expected<std::string> local_addr_of_fd(native_socket fd) {

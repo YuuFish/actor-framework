@@ -59,14 +59,27 @@ protected:
   /// calls `system().middleman().backend().new_tcp_scribe(host, port)`.
   virtual expected<scribe_ptr> connect(const std::string& host, uint16_t port);
 
+  /// Tries to connect to given `host` and `port`. The default implementation
+  /// calls `system().middleman().backend().new_udp`.
+  virtual expected<dgram_servant_ptr> contact(const std::string& host,
+                                              uint16_t port);
+
   /// Tries to open a local port. The default implementation calls
   /// `system().middleman().backend().new_tcp_doorman(port, addr, reuse)`.
   virtual expected<doorman_ptr> open(uint16_t port, const char* addr,
                                      bool reuse);
 
+  /// Tries to open a local port. The default implementation calls
+  /// `system().middleman().backend().new_tcp_doorman(port, addr, reuse)`.
+  virtual expected<dgram_servant_ptr> open_udp(uint16_t port, const char* addr,
+                                               bool reuse);
+
 private:
-  result<uint16_t> put(uint16_t port, strong_actor_ptr& whom, mpi_set& sigs,
-                       const char* in = nullptr, bool reuse_addr = false);
+  put_res put(uint16_t port, strong_actor_ptr& whom, mpi_set& sigs,
+              const char* in = nullptr, bool reuse_addr = false);
+
+  put_res put_udp(uint16_t port, strong_actor_ptr& whom, mpi_set& sigs,
+                  const char* in = nullptr, bool reuse_addr = false);
 
   optional<endpoint_data&> cached(const endpoint& ep);
 
