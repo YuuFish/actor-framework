@@ -92,6 +92,19 @@ struct basp_broker_state : proxy_registry::backend, basp::instance::callee {
   // inherited from basp::instance::listener
   void learned_new_node_indirectly(const node_id& nid) override;
 
+  // inherited from basp::instance::listener
+  uint16_t next_sequence_number(connection_handle hdl) override;
+
+  // inherited from basp::instance::listener
+  uint16_t next_sequence_number(dgram_handle hdl) override;
+
+  // inherited from basp::instance::listener
+  void add_pending(uint16_t seq, endpoint_context& ep, basp::header hdr,
+                   std::vector<char> payload) override;
+
+  // inherited from basp::instance::listener
+  bool deliver_pending(execution_unit* ctx, endpoint_context& ep) override;
+
   void handle_heartbeat(const node_id&) override {
     // nop
   }
@@ -109,7 +122,6 @@ struct basp_broker_state : proxy_registry::backend, basp::instance::callee {
     }
     basp_broker_state* state;
   };
-  /*
   struct sequence_number_visitor {
     using result_type = uint16_t;
     sequence_number_visitor(basp_broker_state* ptr) : state{ptr} { }
@@ -119,10 +131,9 @@ struct basp_broker_state : proxy_registry::backend, basp::instance::callee {
     }
     basp_broker_state* state;
   };
-  */
   wr_buf_visitor wr_buf_vis;
   purge_visitor purge_state_vis;
-  //sequence_number_visitor seq_num_vis;
+  sequence_number_visitor seq_num_vis;
 
   // pointer to ourselves
   broker* self;

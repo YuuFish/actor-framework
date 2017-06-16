@@ -44,7 +44,8 @@ instance::instance(abstract_broker* parent, callee& lstnr)
       this_node_(parent->system().node()),
       callee_(lstnr),
       flush_(parent),
-      wr_buf_(parent) {
+      wr_buf_(parent),
+      seq_num_(lstnr) {
   CAF_ASSERT(this_node_ != none);
 }
 
@@ -111,6 +112,10 @@ connection_state instance::handle(execution_unit* ctx,
     }
     return await_header;
   }
+  if (!handle(ctx, dm.handle, hdr, payload, true, none, none))
+    return err();
+  return await_header;
+  /*
   // function object for checking payload validity
   auto payload_valid = [&]() -> bool {
     return payload != nullptr && payload->size() == hdr.payload_len;
@@ -253,7 +258,74 @@ connection_state instance::handle(execution_unit* ctx,
       return err();
   }
   return await_header;
+  */
 }
+
+bool instance::handle(execution_unit* ctx, new_datagram_msg& dm,
+                      endpoint_context& ep) {
+  using itr_t = std::vector<char>::iterator;
+  // function object providing cleanup code on errors
+  auto err = [&]() -> bool {
+    auto cb = make_callback([&](const node_id& nid) -> error {
+      callee_.purge_state(nid);
+      return none;
+    });
+    tbl_.erase_direct(dm.handle, cb);
+    return false;
+  };
+  // extract payload
+  std::vector<char> pl_buf{std::move_iterator<itr_t>(std::begin(dm.buf) +
+                                                     basp::header_size),
+                           std::move_iterator<itr_t>(std::end(dm.buf))};
+  // resize header
+  dm.buf.resize(basp::header_size);
+  // extract header
+  binary_deserializer bd{ctx, dm.buf};
+  auto e = bd(ep.hdr);
+  if (e || !valid(ep.hdr)) {
+    CAF_LOG_WARNING("received invalid header:" << CAF_ARG(ep.hdr));
+    //std::cerr << "[!!] invalid header!" << std::endl;
+    return err();
+  }
+  CAF_LOG_DEBUG(CAF_ARG(ep.hdr));
+  std::vector<char>* payload = nullptr;
+  if (ep.hdr.payload_len > 0) {
+    payload = &pl_buf;
+    if (payload->size() != ep.hdr.payload_len) {
+      CAF_LOG_WARNING("received invalid payload");
+      return err();
+    }
+  }
+  // Handle FIFO ordering of datagrams
+  /*
+  std::cerr << "[<<] '" << to_string(ep.hdr.operation)
+            << "' with seq '" << ep.hdr.sequence_number << "'" << std::endl;
+  if (ep.hdr.sequence_numer != ep.seq_incoming) {
+    std::cerr << "[!!] '" << to_string(ep.hdr.operation) << "' with seq '"
+              << ep.hdr.sequence_number << "' (!= " << ep.seq_incoming
+              << ")" << std::endl;
+  }
+  */
+  if (ep.hdr.sequence_number > ep.seq_incoming) {
+    // Message arrived "early", add to pending messages
+    auto s = ep.hdr.sequence_number;
+    callee_.add_pending(s, ep, std::move(ep.hdr), std::move(pl_buf));
+    return true;
+  } else if (ep.hdr.sequence_number < ep.seq_incoming) {
+    // Message arrived late, drop it!
+    CAF_LOG_DEBUG("dropping msg " << CAF_ARG(dm));
+    return true;
+  }
+  // Message arrived as expected
+  ep.seq_incoming += 1;
+  // TODO: Add optional reliability here (send acks, ...)
+  if (!handle(ctx, dm.handle, ep.hdr, payload, false, ep, none))
+    return err();
+  // Look for pending messages
+  if (!callee_.deliver_pending(ctx, ep))
+    return err();
+  return true;
+};
 
 void instance::handle_heartbeat(execution_unit* ctx) {
   CAF_LOG_TRACE("");
@@ -396,7 +468,8 @@ void instance::write(execution_unit* ctx, buffer_type& buf,
 
 void instance::write_server_handshake(execution_unit* ctx,
                                       buffer_type& out_buf,
-                                      optional<uint16_t> port) {
+                                      optional<uint16_t> port,
+                                      uint16_t) {
   CAF_LOG_TRACE(CAF_ARG(port));
   using namespace detail;
   published_actor* pa = nullptr;
@@ -428,7 +501,8 @@ void instance::write_server_handshake(execution_unit* ctx,
 
 void instance::write_client_handshake(execution_unit* ctx,
                                       buffer_type& buf,
-                                      const node_id& remote_side) {
+                                      const node_id& remote_side,
+                                      uint16_t) {
   CAF_LOG_TRACE(CAF_ARG(remote_side));
   auto writer = make_callback([&](serializer& sink) -> error {
     auto& str = callee_.system().config().middleman_app_identifier;
@@ -440,7 +514,8 @@ void instance::write_client_handshake(execution_unit* ctx,
 }
 
 void instance::write_announce_proxy(execution_unit* ctx, buffer_type& buf,
-                                    const node_id& dest_node, actor_id aid) {
+                                    const node_id& dest_node, actor_id aid, 
+                                    uint16_t) {
   CAF_LOG_TRACE(CAF_ARG(dest_node) << CAF_ARG(aid));
   header hdr{message_type::announce_proxy, 0, 0, 0,
              this_node_, dest_node, invalid_actor_id, aid};
@@ -449,7 +524,7 @@ void instance::write_announce_proxy(execution_unit* ctx, buffer_type& buf,
 
 void instance::write_kill_proxy(execution_unit* ctx, buffer_type& buf,
                                 const node_id& dest_node, actor_id aid,
-                                const error& rsn) {
+                                const error& rsn, uint16_t) {
   CAF_LOG_TRACE(CAF_ARG(dest_node) << CAF_ARG(aid) << CAF_ARG(rsn));
   auto writer = make_callback([&](serializer& sink) -> error {
     return sink(const_cast<error&>(rsn));
@@ -461,7 +536,8 @@ void instance::write_kill_proxy(execution_unit* ctx, buffer_type& buf,
 
 void instance::write_heartbeat(execution_unit* ctx,
                                buffer_type& buf,
-                               const node_id& remote_side) {
+                               const node_id& remote_side,
+                               uint16_t) {
   CAF_LOG_TRACE(CAF_ARG(remote_side));
   header hdr{message_type::heartbeat, 0, 0, 0,
              this_node_, remote_side, invalid_actor_id, invalid_actor_id};

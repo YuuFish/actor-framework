@@ -52,7 +52,7 @@ basp_broker_state::basp_broker_state(broker* selfptr)
                              static_cast<proxy_registry::backend&>(*this)),
       wr_buf_vis(selfptr),
       purge_state_vis(this),
-      //seq_num_vis(this),
+      seq_num_vis(this),
       self(selfptr),
       instance(selfptr, *this) {
   CAF_ASSERT(this_node() != none);
@@ -513,6 +513,44 @@ void basp_broker_state::set_context(dgram_handle hdl) {
   this_context = &i->second;
 }
 
+uint16_t basp_broker_state::next_sequence_number(connection_handle) {
+  return 0;
+}
+
+uint16_t basp_broker_state::next_sequence_number(dgram_handle hdl) {
+  auto i = ctx_udp.find(hdl);
+  if (i != ctx_udp.end() && i->second.requires_ordering)
+    return i->second.seq_outgoing++;
+  return 0;
+}
+
+void basp_broker_state::add_pending(uint16_t seq, endpoint_context& ep,
+                           basp::header hdr, std::vector<char> payload) {
+  ep.pending.emplace(seq, std::make_pair(std::move(hdr), std::move(payload)));
+  // TODO: choose reasonable default timeout, make configurable
+  self->delayed_send(self, std::chrono::milliseconds(500), pending_atom::value,
+                     get<dgram_handle>(ep.hdl), seq);
+}
+
+bool basp_broker_state::deliver_pending(execution_unit* ctx,
+                                        endpoint_context& ep) {
+  if (!ep.requires_ordering)
+    return true;
+  std::vector<char>* payload = nullptr;
+  auto itr = ep.pending.find(ep.seq_incoming);
+  while (itr != ep.pending.end()) {
+    ep.hdr = std::move(itr->second.first);
+    payload = &itr->second.second;
+    if (!instance.handle(ctx, get<dgram_handle>(ep.hdl),
+                         ep.hdr, payload, false, ep, none))
+      return false;
+    ep.pending.erase(itr);
+    ep.seq_incoming += 1;
+    itr = ep.pending.find(ep.seq_incoming);
+  }
+  return true;
+}
+
 /******************************************************************************
  *                                basp_broker                                 *
  ******************************************************************************/
@@ -571,11 +609,20 @@ behavior basp_broker::make_behavior() {
         ctx.cstate = next;
       }
     },
+    // received from underlying broker implementation
     [=](new_datagram_msg& msg) {
       CAF_LOG_TRACE(CAF_ARG(msg.handle));
       state.set_context(msg.handle);
-      // TODO: handle datagrams
-      // auto& ctx = *state.this_context;
+      auto& ctx = *state.this_context;
+      if (!state.instance.handle(context(), msg, ctx)) {
+        if (ctx.callback) {
+          CAF_LOG_WARNING("failed to handshake with remote node"
+                          << CAF_ARG(msg.handle));
+          ctx.callback->deliver(make_error(sec::disconnect_during_handshake));
+        }
+        close(msg.handle);
+        state.ctx_udp.erase(msg.handle);
+      }
     },
     // received from proxy instances
     [=](forward_atom, strong_actor_ptr& src,
@@ -694,8 +741,41 @@ behavior basp_broker::make_behavior() {
       ctx.remote_port = port;
       ctx.cstate = basp::await_header;
       ctx.callback = rp;
+      ctx.requires_ordering = false;
       // await server handshake
       configure_read(hdl, receive_policy::exactly(basp::header_size));
+    },
+    [=](publish_atom, dgram_servant_ptr& ptr, uint16_t port,
+        const strong_actor_ptr& whom, std::set<std::string>& sigs) {
+      CAF_LOG_TRACE(CAF_ARG(ptr) << CAF_ARG(port)
+                    << CAF_ARG(whom) << CAF_ARG(sigs));
+      CAF_ASSERT(ptr != nullptr);
+      add_dgram_servant(std::move(ptr));
+      if (whom)
+        system().registry().put(whom->id(), whom);
+      state.instance.add_published_actor(port, whom, std::move(sigs));
+    },
+    // received from middleman actor (delegated)
+    // TODO: Use a different atom, such as `contact`?
+    [=](connect_atom, dgram_servant_ptr& ptr,
+        const std::string&, uint16_t port) {
+      CAF_LOG_TRACE(CAF_ARG(ptr) << CAF_ARG(host) << CAF_ARG(port));
+      auto rp = make_response_promise();
+      auto hdl = ptr->hdl();
+      add_dgram_servant(ptr);
+      auto& ctx = state.ctx_udp[hdl];
+      ctx.hdl = hdl;
+      ctx.remote_port = port;
+      ctx.callback = rp;
+      ctx.requires_ordering = true;
+      ctx.seq_incoming = 0;
+      ctx.seq_outgoing = 0;
+      auto& bi = state.instance;
+      bi.write_client_handshake(context(), wr_buf(hdl), none,
+                                ctx.seq_outgoing++);
+      flush(hdl);
+      // TODO: fix buffer size determination
+      configure_datagram_size(hdl, 1500);
     },
     [=](delete_atom, const node_id& nid, actor_id aid) {
       CAF_LOG_TRACE(CAF_ARG(nid) << ", " << CAF_ARG(aid));

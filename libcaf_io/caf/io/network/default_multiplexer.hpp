@@ -701,8 +701,8 @@ public:
   /// interface to `std::vector`.
   using buffer_type = std::vector<char>;
 
-  ///
-  using id_type = uint32_t;
+  /// ID type to identify dgram servants
+  using id_type = int32_t;
 
   /// a job for sending a datagram
   using job_type = std::pair<id_type, std::vector<char>>;
