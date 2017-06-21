@@ -50,6 +50,8 @@
 
 #include "caf/detail/get_mac_addresses.hpp"
 
+#include "caf/io/network/ip_endpoint.hpp"
+
 namespace caf {
 namespace io {
 namespace network {
@@ -273,6 +275,30 @@ interfaces::server_address(uint16_t port, const char* host,
                      return lhs.second > rhs.second;
                    });
   return results;
+}
+
+bool interfaces::get_endpoint(const std::string& host, uint16_t port,
+                              ip_endpoint& ep, optional<protocol> preferred) {
+  addrinfo hint;
+  char port_hint[6];
+  sprintf(port_hint, "%hu", port);
+  memset(&hint, 0, sizeof(hint));
+  hint.ai_socktype = SOCK_DGRAM;
+  if (preferred)
+    hint.ai_family = *preferred == protocol::ipv4 ? AF_INET : AF_INET6;
+  addrinfo* tmp = nullptr;
+  if (getaddrinfo(host.c_str(), port_hint, &hint, &tmp) != 0)
+    return false;
+  std::unique_ptr<addrinfo, decltype(freeaddrinfo)*> addrs{tmp, freeaddrinfo};
+  for (auto i = addrs.get(); i != nullptr; i = i->ai_next) {
+    //auto family = fetch_addr_str(true, true, buffer, i->ai_addr);
+    if (i->ai_family != AF_UNSPEC) {
+      memcpy(&ep.addr, i->ai_addr, i->ai_addrlen);
+      ep.len = i->ai_addrlen;
+      return true;
+    }
+  }
+  return false;
 }
 
 } // namespace network

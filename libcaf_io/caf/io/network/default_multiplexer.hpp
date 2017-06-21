@@ -395,14 +395,17 @@ private:
       // squash events together
       CAF_LOG_DEBUG("squash events:" << CAF_ARG(i->mask)
                     << CAF_ARG(fun(op, i->mask)));
+      std::cout << "[ne] squash events" << std::endl;
       auto bf = i->mask;
       i->mask = fun(op, bf);
       if (i->mask == bf) {
         // didn't do a thing
         CAF_LOG_DEBUG("squashing did not change the event");
+        std::cout << "[ne] squash did not change the event" << std::endl;
       } else if (i->mask == old_bf) {
         // just turned into a nop
         CAF_LOG_DEBUG("squashing events resulted in a NOP");
+        std::cout << "[ne] squashing events resulted in a NOP" << std::endl;
         events_.erase(i);
       }
     } else {
@@ -411,9 +414,12 @@ private:
       if (bf == old_bf) {
         CAF_LOG_DEBUG("event has no effect (discarded): "
                  << CAF_ARG(bf) << ", " << CAF_ARG(old_bf));
+        std::cout << "[ne] event has no effect (discarded)" << std::endl;
       } else {
         CAF_LOG_DEBUG("added handler:" << CAF_ARG(fd) << CAF_ARG(op));
         events_.insert(i, event{fd, bf, ptr});
+        std::cout << "[ne] added handler for operation "
+                  << to_string(op) << std::endl;
       }
     }
   }
@@ -434,9 +440,7 @@ private:
   multiplexer_poll_shadow_data shadow_;
   std::pair<native_socket, native_socket> pipe_;
   pipe_reader pipe_reader_;
-
-  // UDP data
-  int64_t dgram_servant_ids_;
+  int64_t servant_ids_;
 };
 
 /// A stream capable of both reading and writing. The stream's input
@@ -705,7 +709,7 @@ public:
   using id_type = int64_t;
 
   /// a job for sending a datagram
-  using job_type = std::pair<id_type, std::vector<char>>;
+  using job_type = std::pair<id_type, buffer_type>;
 
   dgram_handler(default_multiplexer& backend_ref, native_socket sockfd);
 
@@ -731,7 +735,7 @@ public:
 
   /// Copies data to the write buffer.
   /// @warning Not thread safe.
-  void write(const void* buf, size_t num_bytes);
+  void write(id_type id, const void* buf, size_t num_bytes);
 
   /// Returns the write buffer of this stream.
   /// @warning Must not be modified outside the IO multiplexers event loop
@@ -780,6 +784,7 @@ protected:
     auto mcr = max_consecutive_reads();
     switch (op) {
       case io::network::operation::read: {
+        std::cout << "[he] handler got read event" << std::endl;
         // Loop until an error occurs or we have nothing more to read
         // or until we have handled `mcr` reads.
         size_t rb;
@@ -828,14 +833,18 @@ protected:
         break;
       }
       case io::network::operation::write: {
+        std::cout << "[he] handler got write event" << std::endl;
         size_t wb; // written bytes
         auto itr = from_id_.find(wr_buf_.first);
         if (itr == from_id_.end()) {
           // handle_error
+          std::cerr << "Unknown endpoint" << std::endl;
+          return;
         }
         auto& ctx = itr->second;
-        if (!policy.write_datagram(wb, fd(), wr_buf_.second.data(),
-                                   wr_buf_.second.size(), ctx->endpoint)) {
+        std::vector<char>& buf = wr_buf_.second;
+        if (!policy.write_datagram(wb, fd(), buf.data(),
+                                   buf.size(), ctx->endpoint)) {
           ctx->writer->io_failure(&backend(), operation::write);
           backend().del(operation::write, fd(), this);
         } else if (wb > 0) {
@@ -850,6 +859,7 @@ protected:
         break;
       }
       case operation::propagate_error:
+        std::cout << "[he] handler got error" << std::endl;
         if (reader_)
           reader_->io_failure(&backend(), operation::read);
         for (auto& mngr : from_ep_)

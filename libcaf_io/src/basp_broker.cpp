@@ -611,6 +611,8 @@ behavior basp_broker::make_behavior() {
     },
     // received from underlying broker implementation
     [=](new_datagram_msg& msg) {
+      std::cout << "Broker received `new_datagram_msg` from "
+                << local_port(msg.handle) << std::endl;
       CAF_LOG_TRACE(CAF_ARG(msg.handle));
       state.set_context(msg.handle);
       auto& ctx = *state.this_context;
@@ -622,6 +624,8 @@ behavior basp_broker::make_behavior() {
         }
         close(msg.handle);
         state.ctx_udp.erase(msg.handle);
+      } else {
+        configure_datagram_size(msg.handle, 1500);
       }
     },
     // received from proxy instances
@@ -747,6 +751,8 @@ behavior basp_broker::make_behavior() {
     },
     [=](publish_udp_atom, dgram_servant_ptr& ptr, uint16_t port,
         const strong_actor_ptr& whom, std::set<std::string>& sigs) {
+      std::cout << "BASP broker received `publish_udp` atom for port "
+                << port << std::endl;
       CAF_LOG_TRACE(CAF_ARG(ptr) << CAF_ARG(port)
                     << CAF_ARG(whom) << CAF_ARG(sigs));
       CAF_ASSERT(ptr != nullptr);
@@ -759,6 +765,8 @@ behavior basp_broker::make_behavior() {
     // received from middleman actor (delegated)
     [=](contact_atom, dgram_servant_ptr& ptr, uint16_t port) {
       CAF_LOG_TRACE(CAF_ARG(ptr) << CAF_ARG(host) << CAF_ARG(port));
+      std::cout << "BASP broker received `contact` atom for port "
+                << port << std::endl;
       auto rp = make_response_promise();
       auto hdl = ptr->hdl();
       add_dgram_servant(ptr);

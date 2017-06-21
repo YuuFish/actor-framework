@@ -47,11 +47,19 @@ middleman_actor_impl::middleman_actor_impl(actor_config& cfg,
     : middleman_actor::base(cfg),
       broker_(std::move(default_broker)) {
   set_down_handler([=](down_msg& dm) {
-    auto i = cached_.begin();
-    auto e = cached_.end();
+    auto i = cached_tcp_.begin();
+    auto e = cached_tcp_.end();
     while (i != e) {
       if (get<1>(i->second) == dm.source)
-        i = cached_.erase(i);
+        i = cached_tcp_.erase(i);
+      else
+        ++i;
+    }
+    i = cached_udp_.begin();
+    e = cached_udp_.end();
+    while (i != e) {
+      if (get<1>(i->second) == dm.source)
+        i = cached_tcp_.erase(i);
       else
         ++i;
     }
@@ -86,12 +94,13 @@ auto middleman_actor_impl::make_behavior() -> behavior_type {
       return put(port, whom, sigs, addr.c_str(), reuse);
     },
     [=](connect_atom, std::string& hostname, uint16_t port) -> get_res {
-      std::cout << "Connect to TCP endpoint on " << hostname << ":" << port << std::endl;
+      std::cout << "Connecting to TCP endpoint on " << hostname << ":"
+                << port << std::endl;
       CAF_LOG_TRACE(CAF_ARG(hostname) << CAF_ARG(port));
       auto rp = make_response_promise();
       endpoint key{std::move(hostname), port};
       // respond immediately if endpoint is cached
-      auto x = cached(key);
+      auto x = cached_udp(key);
       if (x) {
         CAF_LOG_DEBUG("found cached entry" << CAF_ARG(*x));
         rp.deliver(get<0>(*x), get<1>(*x), get<2>(*x));
@@ -121,7 +130,7 @@ auto middleman_actor_impl::make_behavior() -> behavior_type {
               return;
             if (nid && addr) {
               monitor(addr);
-              cached_.emplace(key, std::make_tuple(nid, addr, sigs));
+              cached_tcp_.emplace(key, std::make_tuple(nid, addr, sigs));
             }
             auto res = make_message(std::move(nid), std::move(addr),
                                     std::move(sigs));
@@ -145,12 +154,13 @@ auto middleman_actor_impl::make_behavior() -> behavior_type {
       return put_udp(port, whom, sigs, addr.c_str(), reuse);
     },
     [=](contact_atom, std::string& hostname, uint16_t port) -> get_res {
-      std::cout << "Contact UDP endpoint on " << hostname << ":" << port << std::endl;
+      std::cout << "Contacting UDP endpoint on " << hostname << ":"
+                << port << std::endl;
       CAF_LOG_TRACE(CAF_ARG(hostname) << CAF_ARG(port));
       auto rp = make_response_promise();
       endpoint key{std::move(hostname), port};
       // respond immediately if endpoint is cached
-      auto x = cached(key);
+      auto x = cached_udp(key);
       if (x) {
         CAF_LOG_DEBUG("found cached entry" << CAF_ARG(*x));
         rp.deliver(get<0>(*x), get<1>(*x), get<2>(*x));
@@ -180,7 +190,7 @@ auto middleman_actor_impl::make_behavior() -> behavior_type {
               return;
             if (nid && addr) {
               monitor(addr);
-              cached_.emplace(key, std::make_tuple(nid, addr, sigs));
+              cached_udp_.emplace(key, std::make_tuple(nid, addr, sigs));
             }
             auto res = make_message(std::move(nid), std::move(addr),
                                     std::move(sigs));
@@ -266,9 +276,17 @@ middleman_actor_impl::put_udp(uint16_t port, strong_actor_ptr& whom,
 }
 
 optional<middleman_actor_impl::endpoint_data&>
-middleman_actor_impl::cached(const endpoint& ep) {
-  auto i = cached_.find(ep);
-  if (i != cached_.end())
+middleman_actor_impl::cached_tcp(const endpoint& ep) {
+  auto i = cached_tcp_.find(ep);
+  if (i != cached_tcp_.end())
+    return i->second;
+  return none;
+}
+
+optional<middleman_actor_impl::endpoint_data&>
+middleman_actor_impl::cached_udp(const endpoint& ep) {
+  auto i = cached_udp_.find(ep);
+  if (i != cached_udp_.end())
     return i->second;
   return none;
 }
@@ -286,8 +304,8 @@ expected<scribe_ptr> middleman_actor_impl::connect(const std::string& host,
   return system().middleman().backend().new_tcp_scribe(host, port);
 }
 
-expected<dgram_servant_ptr> middleman_actor_impl::contact(const std::string& host,
-                                                          uint16_t port) {
+expected<dgram_servant_ptr>
+middleman_actor_impl::contact(const std::string& host, uint16_t port) {
   return system().middleman().backend().new_remote_udp_endpoint(host, port);
 }
 

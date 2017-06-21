@@ -456,6 +456,8 @@ void instance::write(execution_unit* ctx, buffer_type& buf,
     auto plen = buf.size() - pos - basp::header_size;
     CAF_ASSERT(plen <= std::numeric_limits<uint32_t>::max());
     hdr.payload_len = static_cast<uint32_t>(plen);
+    std::cout << "[w] writing " << (basp::header_size + plen)
+              << " bytes" << std::endl;
     stream_serializer<charbuf> out{ctx, buf.data() + pos, basp::header_size};
     err = out(hdr);
   } else {
@@ -469,7 +471,7 @@ void instance::write(execution_unit* ctx, buffer_type& buf,
 void instance::write_server_handshake(execution_unit* ctx,
                                       buffer_type& out_buf,
                                       optional<uint16_t> port,
-                                      uint16_t) {
+                                      uint16_t sequence_number) {
   CAF_LOG_TRACE(CAF_ARG(port));
   using namespace detail;
   published_actor* pa = nullptr;
@@ -495,52 +497,56 @@ void instance::write_server_handshake(execution_unit* ctx,
   header hdr{message_type::server_handshake, 0, 0, version,
              this_node_, none,
              (pa != nullptr) && pa->first ? pa->first->id() : invalid_actor_id,
-             invalid_actor_id};
+             invalid_actor_id, sequence_number};
   write(ctx, out_buf, hdr, &writer);
 }
 
 void instance::write_client_handshake(execution_unit* ctx,
                                       buffer_type& buf,
                                       const node_id& remote_side,
-                                      uint16_t) {
+                                      uint16_t sequence_number) {
   CAF_LOG_TRACE(CAF_ARG(remote_side));
   auto writer = make_callback([&](serializer& sink) -> error {
     auto& str = callee_.system().config().middleman_app_identifier;
     return sink(const_cast<std::string&>(str));
   });
   header hdr{message_type::client_handshake, 0, 0, 0,
-             this_node_, remote_side, invalid_actor_id, invalid_actor_id};
+             this_node_, remote_side, invalid_actor_id, invalid_actor_id,
+             sequence_number};
   write(ctx, buf, hdr, &writer);
 }
 
 void instance::write_announce_proxy(execution_unit* ctx, buffer_type& buf,
-                                    const node_id& dest_node, actor_id aid, 
-                                    uint16_t) {
+                                    const node_id& dest_node, actor_id aid,
+                                    uint16_t sequence_number) {
   CAF_LOG_TRACE(CAF_ARG(dest_node) << CAF_ARG(aid));
   header hdr{message_type::announce_proxy, 0, 0, 0,
-             this_node_, dest_node, invalid_actor_id, aid};
+             this_node_, dest_node, invalid_actor_id, aid,
+             sequence_number};
   write(ctx, buf, hdr);
 }
 
 void instance::write_kill_proxy(execution_unit* ctx, buffer_type& buf,
                                 const node_id& dest_node, actor_id aid,
-                                const error& rsn, uint16_t) {
+                                const error& rsn, uint16_t sequence_number) {
   CAF_LOG_TRACE(CAF_ARG(dest_node) << CAF_ARG(aid) << CAF_ARG(rsn));
   auto writer = make_callback([&](serializer& sink) -> error {
     return sink(const_cast<error&>(rsn));
   });
   header hdr{message_type::kill_proxy, 0, 0, 0,
-             this_node_, dest_node, aid, invalid_actor_id};
+             this_node_, dest_node, aid, invalid_actor_id,
+             sequence_number};
   write(ctx, buf, hdr, &writer);
 }
 
 void instance::write_heartbeat(execution_unit* ctx,
                                buffer_type& buf,
                                const node_id& remote_side,
-                               uint16_t) {
+                               uint16_t sequence_number) {
   CAF_LOG_TRACE(CAF_ARG(remote_side));
   header hdr{message_type::heartbeat, 0, 0, 0,
-             this_node_, remote_side, invalid_actor_id, invalid_actor_id};
+             this_node_, remote_side, invalid_actor_id, invalid_actor_id,
+             sequence_number};
   write(ctx, buf, hdr);
 }
 

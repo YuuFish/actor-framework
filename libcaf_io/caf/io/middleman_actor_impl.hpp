@@ -81,12 +81,14 @@ private:
   put_res put_udp(uint16_t port, strong_actor_ptr& whom, mpi_set& sigs,
                   const char* in = nullptr, bool reuse_addr = false);
 
-  optional<endpoint_data&> cached(const endpoint& ep);
+  optional<endpoint_data&> cached_tcp(const endpoint& ep);
+  optional<endpoint_data&> cached_udp(const endpoint& ep);
 
   optional<std::vector<response_promise>&> pending(const endpoint& ep);
 
   actor broker_;
-  std::map<endpoint, endpoint_data> cached_;
+  std::map<endpoint, endpoint_data> cached_tcp_;
+  std::map<endpoint, endpoint_data> cached_udp_;
   std::map<endpoint, std::vector<response_promise>> pending_;
 };
 
