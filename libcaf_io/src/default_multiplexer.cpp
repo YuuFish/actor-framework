@@ -710,6 +710,24 @@ sender_from_sockaddr(ip_endpoint ep) {
   return std::make_tuple(std::string(addr),port);
 }
 
+void dump_bytes(const unsigned char* bytes, size_t num_bytes) {
+  for (size_t i = 0; i < num_bytes; ++i) {
+    std::cout << std::hex << std::setfill('0') << std::setw(2)
+    << static_cast<int>(bytes[i])
+    << ((i + 1) % 5 == 0 ? "\n" : " ");
+  }
+  if (num_bytes % 5 != 0)
+    std::cout << std::endl;
+  std::cout << std::dec;
+}
+
+void dump_sockaddr(sockaddr_storage& addr) {
+  const unsigned char* bytes = reinterpret_cast<const unsigned char*>(&addr);
+  size_t num_bytes = addr.ss_family == AF_INET
+                  ? sizeof(sockaddr_in) : sizeof(sockaddr_in6);
+  dump_bytes(bytes, num_bytes);
+}
+
 bool read_datagram(size_t& result, native_socket fd, void* buf, size_t buf_len,
                    ip_endpoint& ep) {
   CAF_LOG_TRACE(CAF_ARG(fd));
@@ -735,12 +753,14 @@ bool read_datagram(size_t& result, native_socket fd, void* buf, size_t buf_len,
 bool write_datagram(size_t& result, native_socket fd, void* buf, size_t buf_len,
                     ip_endpoint& ep) {
   CAF_LOG_TRACE(CAF_ARG(fd) << CAF_ARG(buf_len));
+  std::this_thread::sleep_for(std::chrono::seconds(10));
   auto dest = sender_from_sockaddr(ep);
-  socklen_t socklen = sizeof(sockaddr_in6);
+  socklen_t socklen = ep.len; //sizeof(sockaddr_in6);
   std::cout << "[wd] sending datagram of " << buf_len << " bytes to "
             << std::get<0>(dest) << ":" << std::get<1>(dest)
-            << " address length is " << socklen
+            << ", addr len = " << socklen
             << std::endl;
+  dump_sockaddr(ep.addr);
   auto sres = ::sendto(fd, reinterpret_cast<socket_send_ptr>(buf), buf_len,
                        0, reinterpret_cast<sockaddr*>(&ep.addr),
                        socklen); //ep.len);
@@ -1555,11 +1575,13 @@ expected<void> read_port(native_socket fd, SockAddrType& sa) {
 }
 
 expected<void> set_inaddr_any(native_socket, sockaddr_in& sa) {
+  std::cout << "[sia] ipv4" << std::endl;
   sa.sin_addr.s_addr = INADDR_ANY;
   return unit;
 }
 
 expected<void> set_inaddr_any(native_socket fd, sockaddr_in6& sa) {
+  std::cout << "[sia] ipv6" << std::endl;
   sa.sin6_addr = in6addr_any;
   // also accept ipv4 requests on this socket
   int off = 0;
@@ -1647,15 +1669,16 @@ new_remote_udp_endpoint_impl(const std::string& host, uint16_t port,
   CAF_LOG_TRACE(CAF_ARG(host) << CAF_ARG(port) << CAF_ARG(preferred));
   // TODO: Include a setting for reuse addr (currently always false)
   auto reuse = false;
-  auto fd = new_local_udp_endpoint_impl(0, nullptr, reuse);
+  auto fd = new_local_udp_endpoint_impl(0, nullptr, reuse, preferred);
   if (!fd)
     return fd.error();
   socket_guard sguard{*fd};
   std::pair<native_socket, ip_endpoint> info;
-  auto success = interfaces::get_endpoint(host, port, std::get<1>(info),
-                                          preferred);
-  if (!success)
+  memset(&std::get<1>(info), 0, sizeof(sockaddr_storage));
+  auto proto = std::get<1>(info).addr.ss_family == AF_INET ? ipv4 : ipv6;
+  if (!interfaces::get_endpoint(host, port, std::get<1>(info), proto))
     return make_error(sec::cannot_connect_to_node, "no such host", host, port);
+  dump_sockaddr(std::get<1>(info).addr);
   auto dest = sender_from_sockaddr(std::get<1>(info));
   std::cout << "[nrue] endpoint available at " << std::get<0>(dest)
             << ":" << std::get<1>(dest) << std::endl;
@@ -1664,9 +1687,10 @@ new_remote_udp_endpoint_impl(const std::string& host, uint16_t port,
 }
 
 expected<native_socket>
-new_local_udp_endpoint_impl(uint16_t port, const char* addr, bool reuse) {
+new_local_udp_endpoint_impl(uint16_t port, const char* addr, bool reuse,
+                            optional<protocol> preferred) {
   CAF_LOG_TRACE(CAF_ARG(port) << ", addr = " << (addr ? addr : "nullptr"));
-  auto addrs = interfaces::server_address(port, addr);
+  auto addrs = interfaces::server_address(port, addr, preferred);
   auto addr_str = std::string{addr == nullptr ? "" : addr};
   if (addrs.empty())
     return make_error(sec::cannot_open_port, "No local interface available",
@@ -1692,7 +1716,7 @@ new_local_udp_endpoint_impl(uint16_t port, const char* addr, bool reuse) {
                       port, addr_str);
   }
   CAF_LOG_DEBUG(CAF_ARG(fd));
-  std::cout << "Opened local socket " << fd << " on port "
+  std::cout << "[nlue] opened local socket " << fd << " on port "
             << local_port_of_fd(fd) << std::endl;
   return fd;
 }

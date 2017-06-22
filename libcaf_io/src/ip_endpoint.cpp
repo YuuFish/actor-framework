@@ -73,9 +73,33 @@ size_t ip_hash::hash(const sockaddr_in6* sa) const noexcept {
 }
 
 bool operator==(const ip_endpoint& lhs, const ip_endpoint& rhs) {
-  if (lhs.len == rhs.len) // && lhs.addr.ss_family == rhs.addr.ss_family)
-    return 0 == std::memcmp(&lhs.addr, &rhs.addr, lhs.len);
-  return false;
+  auto same = false;
+  if (lhs.len == rhs.len && lhs.addr.ss_family == rhs.addr.ss_family) {
+    switch (lhs.addr.ss_family) {
+      case AF_INET:
+        same = memcmp(
+          reinterpret_cast<const sockaddr_in*>(&lhs.addr),
+          reinterpret_cast<const sockaddr_in*>(&rhs.addr),
+          sizeof(in_addr) + sizeof(short) + sizeof(unsigned short)
+        );
+        break;
+      case AF_INET6:
+        same = memcmp(
+          &reinterpret_cast<const sockaddr_in6*>(&lhs.addr)->sin6_addr,
+          &reinterpret_cast<const sockaddr_in6*>(&rhs.addr)->sin6_addr,
+          sizeof(in6_addr)
+        ) && (
+          reinterpret_cast<const sockaddr_in6*>(&lhs.addr)->sin6_port ==
+          reinterpret_cast<const sockaddr_in6*>(&rhs.addr)->sin6_port
+        );
+      default:
+        break;
+    }
+  }
+  return same;
+  // TODO: not sure if there is gibberish somewhere in between the fields,
+  //       or in the padding.
+  // return (0 == std::memcmp(&lhs.addr, &rhs.addr, lhs.len));
 }
 
 

@@ -408,7 +408,7 @@ public:
 private:
   struct sequence_number_visitor {
     using result_type = uint16_t;
-    sequence_number_visitor(instance::callee& c) : cal{c} { }
+    sequence_number_visitor(instance::callee& c) : cal(c) { }
     template <class T>
     result_type operator()(const T& hdl) {
       return cal.next_sequence_number(hdl);
