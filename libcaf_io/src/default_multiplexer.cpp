@@ -1420,11 +1420,18 @@ void dgram_handler::flush(id_type id, ip_endpoint& ep,
 // TODO: should this be a reference because we can't move endpoints?
 void dgram_handler::add_endpoint(id_type id, ip_endpoint& ep,
                                  const manager_ptr mgr) {
-  std::cout << "[ae] <" << unique_id_ << "> got new endpoint ("
-            << id << ", " << to_string(ep) << ")" << std::endl;
-  auto data = make_counted<endpoint_data>(ep, mgr);
-  from_ep_[ep] = data;
-  from_id_[id] = data;
+  auto itr = from_ep_.find(ep);
+  if (itr == from_ep_.end()) {
+    std::cout << "[ae] <" << unique_id_ << "> got new endpoint ("
+              << id << ", " << to_string(ep) << ")" << std::endl;
+    auto data = make_counted<endpoint_data>(ep, mgr);
+    from_ep_[ep] = data;
+    from_id_[id] = data;
+  } else {
+    std::cout << "[ae] <" << unique_id_ << "> already knows "
+              << to_string(ep) << "!" << std::endl;
+    abort();
+  }
 }
 
 void dgram_handler::stop_reading() {

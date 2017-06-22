@@ -77,18 +77,18 @@ bool operator==(const ip_endpoint& lhs, const ip_endpoint& rhs) {
   if (lhs.len == rhs.len && lhs.addr.ss_family == rhs.addr.ss_family) {
     switch (lhs.addr.ss_family) {
       case AF_INET:
-        same = memcmp(
+        same = (0 == memcmp(
           reinterpret_cast<const sockaddr_in*>(&lhs.addr),
           reinterpret_cast<const sockaddr_in*>(&rhs.addr),
           sizeof(in_addr) + sizeof(short) + sizeof(unsigned short)
-        );
+        ));
         break;
       case AF_INET6:
-        same = memcmp(
+        same = (0 == memcmp(
           &reinterpret_cast<const sockaddr_in6*>(&lhs.addr)->sin6_addr,
           &reinterpret_cast<const sockaddr_in6*>(&rhs.addr)->sin6_addr,
           sizeof(in6_addr)
-        ) && (
+        )) && (
           reinterpret_cast<const sockaddr_in6*>(&lhs.addr)->sin6_port ==
           reinterpret_cast<const sockaddr_in6*>(&rhs.addr)->sin6_port
         );

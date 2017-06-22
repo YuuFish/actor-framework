@@ -788,31 +788,22 @@ protected:
             passivate();
             return;
           }
-          // TODO:
-          // - look for an existing servant with the ID.
-          // - create new dgram servant with fd() (does this mean, that I
-          //   don't need the lists, because the new servant has the related
-          //   info? Then, I could also use a normal handle and skip all the
-          //   extra IDs ...)
-          // - lookup the related dgram servant
-          // - create a new one if none was found
-          // - set receiver ID
-          // - call consume function
-          // - include ID in comsume function
           if (rb > 0) {
+            rd_buf_.resize(rb);
             // TODO: sent as the new endpoint
             auto itr = from_ep_.find(sender_);
-            /*
-            bool res = false;
-            if (itr == from_ep_.end()) {
-              res = reader_->new_endpoint(sender_);
-              // TODO: whatever is needed
-            } else {
-              //auto res = reader_->consume(&backend(), rd_buf_.data(), rb);
-              res = itr->second->writer->consume(&backend(), rd_buf_);
-            }
-            */
-            rd_buf_.resize(rb);
+//            std::cout << "[he] received " << rb << " bytes from "
+//                      << to_string(sender_) << " ("
+//                      << (itr == from_ep_.end() ? "unknown" : "known")
+//                      << ")" << std::endl;
+//            std::cout << "[he] known endpoints: " << std::endl;
+//            for (auto& elem : from_ep_)
+//              std::cout << " > " << to_string(elem.first) << std::endl;
+//            bool consumed = false;
+//            if (itr == from_ep_.end())
+//              consumed = reader_->new_endpoint(sender_, rd_buf_);
+//            else
+//              consumed = itr->second->writer->consume(&backend(), rd_buf_);
             auto consumed = (itr == from_ep_.end())
               ? reader_->new_endpoint(sender_, rd_buf_)
               : itr->second->writer->consume(&backend(), rd_buf_);
