@@ -38,6 +38,8 @@ message dgram_servant::detach_message() {
 }
 
 bool dgram_servant::consume(execution_unit* ctx, std::vector<char>& buf) {
+  std::cout << "[c] {" << hdl().id() << "} consuming buffer of "
+            << buf.size() << " bytes" << std::endl;
   // TODO: add endpoint id to handle
   // TODO: change signature to use vector<char> for passing the buffer!
   CAF_ASSERT(ctx != nullptr);
@@ -65,6 +67,7 @@ bool dgram_servant::consume(execution_unit* ctx, std::vector<char>& buf) {
   return result;
   */
   auto guard = parent_;
+  msg().handle = hdl();
   auto& msg_buf = msg().buf;
   msg_buf.swap(buf);
   auto result = invoke_mailbox_element(ctx);

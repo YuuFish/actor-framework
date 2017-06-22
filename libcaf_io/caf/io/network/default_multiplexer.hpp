@@ -395,17 +395,17 @@ private:
       // squash events together
       CAF_LOG_DEBUG("squash events:" << CAF_ARG(i->mask)
                     << CAF_ARG(fun(op, i->mask)));
-      std::cout << "[ne] squash events" << std::endl;
+//      std::cout << "[ne] squash events" << std::endl;
       auto bf = i->mask;
       i->mask = fun(op, bf);
       if (i->mask == bf) {
         // didn't do a thing
         CAF_LOG_DEBUG("squashing did not change the event");
-        std::cout << "[ne] squash did not change the event" << std::endl;
+//        std::cout << "[ne] squash did not change the event" << std::endl;
       } else if (i->mask == old_bf) {
         // just turned into a nop
         CAF_LOG_DEBUG("squashing events resulted in a NOP");
-        std::cout << "[ne] squashing events resulted in a NOP" << std::endl;
+//        std::cout << "[ne] squashing events resulted in a NOP" << std::endl;
         events_.erase(i);
       }
     } else {
@@ -414,12 +414,12 @@ private:
       if (bf == old_bf) {
         CAF_LOG_DEBUG("event has no effect (discarded): "
                  << CAF_ARG(bf) << ", " << CAF_ARG(old_bf));
-        std::cout << "[ne] event has no effect (discarded)" << std::endl;
+//        std::cout << "[ne] event has no effect (discarded)" << std::endl;
       } else {
         CAF_LOG_DEBUG("added handler:" << CAF_ARG(fd) << CAF_ARG(op));
         events_.insert(i, event{fd, bf, ptr});
-        std::cout << "[ne] added handler for operation "
-                  << to_string(op) << std::endl;
+//        std::cout << "[ne] added handler for operation "
+//                  << to_string(op) << std::endl;
       }
     }
   }
@@ -743,7 +743,7 @@ public:
   inline buffer_type& wr_buf(id_type id) {
     wr_offline_buf_.emplace_back();
     wr_offline_buf_.back().first = id;
-    return  wr_offline_buf_.back().second;
+    return wr_offline_buf_.back().second;
   }
 
   /// Returns the read buffer of this stream.
@@ -751,14 +751,6 @@ public:
   ///          once the stream has been started.
   inline buffer_type& rd_buf() {
     return rd_buf_;
-  }
-
-  inline const std::string& host() const {
-    return host_;
-  }
-
-  inline uint16_t port() const {
-    return port_;
   }
 
   /// Sends the content of the write buffer, calling the `io_failure`
@@ -780,11 +772,12 @@ public:
 protected:
   template <class Policy>
   void handle_event_impl(io::network::operation op, Policy& policy) {
+    std::cout << "[hd] <" << unique_id_ << "> processing " << to_string(op)
+              << " event" << std::endl;
     CAF_LOG_TRACE(CAF_ARG(op));
     auto mcr = max_consecutive_reads();
     switch (op) {
       case io::network::operation::read: {
-        std::cout << "[he] handler got read event" << std::endl;
         // Loop until an error occurs or we have nothing more to read
         // or until we have handled `mcr` reads.
         size_t rb;
@@ -819,12 +812,13 @@ protected:
               res = itr->second->writer->consume(&backend(), rd_buf_);
             }
             */
-            auto res = (itr == from_ep_.end())
+            rd_buf_.resize(rb);
+            auto consumed = (itr == from_ep_.end())
               ? reader_->new_endpoint(sender_, rd_buf_)
               : itr->second->writer->consume(&backend(), rd_buf_);
             bytes_read_ = rb;
             prepare_next_read();
-            if (!res) {
+            if (!consumed) {
               passivate();
               return;
             }
@@ -833,12 +827,20 @@ protected:
         break;
       }
       case io::network::operation::write: {
-        std::cout << "[he] handler got write event" << std::endl;
         size_t wb; // written bytes
+        std::cout << "[he] looking for handler {" << wr_buf_.first
+                  << "} to write " << wr_buf_.second.size() << " bytes"
+                  << std::endl;
         auto itr = from_id_.find(wr_buf_.first);
         if (itr == from_id_.end()) {
           // handle_error
-          std::cerr << "Unknown endpoint" << std::endl;
+          std::cout << "[he] unknown servant {" << wr_buf_.first << "}, got: "
+                    << std::endl;
+          for  (auto& ep : from_id_) {
+            std::cout << " > {" << ep.first << "}  for "
+                      << to_string(ep.second->endpoint) << std::endl;
+          }
+          abort();
           return;
         }
         auto& ctx = itr->second;
@@ -859,7 +861,6 @@ protected:
         break;
       }
       case operation::propagate_error:
-        std::cout << "[he] handler got error" << std::endl;
         if (reader_)
           reader_->io_failure(&backend(), operation::read);
         for (auto& mngr : from_ep_)
@@ -893,14 +894,15 @@ private:
 
   // addr of last sender
   ip_endpoint sender_;
-  std::string host_;
-  uint16_t port_;
 
   // state for writing
   bool ack_writes_;
   bool writing_;
   std::deque<job_type> wr_offline_buf_;
   job_type wr_buf_;
+  
+  // debugging
+  uint32_t unique_id_;
 };
 
 /// A concrete dgram_handler with a technology-dependent policy.

@@ -211,7 +211,7 @@ expected<strong_actor_ptr> middleman::remote_actor(std::set<std::string> ifs,
 expected<strong_actor_ptr>
 middleman::remote_actor_udp(std::set<std::string> ifs, std::string host,
                             uint16_t port) {
-  std::cout << "Remote actor via UDP on " << host << ":" << port << std::endl;
+//  std::cout << "Remote actor via UDP on " << host << ":" << port << std::endl;
   CAF_LOG_TRACE(CAF_ARG(ifs) << CAF_ARG(host) << CAF_ARG(port));
   auto f = make_function_view(actor_handle());
   auto res = f(contact_atom::value, std::move(host), port);

@@ -94,7 +94,7 @@ auto middleman_actor_impl::make_behavior() -> behavior_type {
       return put(port, whom, sigs, addr.c_str(), reuse);
     },
     [=](connect_atom, std::string& hostname, uint16_t port) -> get_res {
-      std::cout << "Connecting to TCP endpoint on " << hostname << ":"
+      std::cout << "[mm] connecting to TCP endpoint on " << hostname << ":"
                 << port << std::endl;
       CAF_LOG_TRACE(CAF_ARG(hostname) << CAF_ARG(port));
       auto rp = make_response_promise();
@@ -154,7 +154,7 @@ auto middleman_actor_impl::make_behavior() -> behavior_type {
       return put_udp(port, whom, sigs, addr.c_str(), reuse);
     },
     [=](contact_atom, std::string& hostname, uint16_t port) -> get_res {
-      std::cout << "Contacting UDP endpoint on " << hostname << ":"
+      std::cout << "[mm] contacting UDP endpoint on " << hostname << ":"
                 << port << std::endl;
       CAF_LOG_TRACE(CAF_ARG(hostname) << CAF_ARG(port));
       auto rp = make_response_promise();
@@ -269,7 +269,6 @@ middleman_actor_impl::put_udp(uint16_t port, strong_actor_ptr& whom,
     return std::move(res.error());
   auto& ptr = *res;
   actual_port = ptr->local_port();
-  std::cout << "actual port is " << actual_port << std::endl;
   anon_send(broker_, publish_udp_atom::value, std::move(ptr), actual_port,
             std::move(whom), std::move(sigs));
   return actual_port;

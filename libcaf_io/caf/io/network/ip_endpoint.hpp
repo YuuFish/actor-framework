@@ -121,6 +121,8 @@ typename Inspector::result_type inspect(Inspector& f, ip_endpoint& ep) {
   return f(meta::type_name("ip_endpoint"), addr, port, ep.len);
 }
 
+std::string to_string(const ip_endpoint& ep);
+
 // TODO: write inspector?
 
 } // namespace network

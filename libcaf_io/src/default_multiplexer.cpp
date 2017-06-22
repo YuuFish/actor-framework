@@ -49,6 +49,9 @@
 #include <utility>
 #endif
 
+// TODO: delete me
+#include <random>
+
 using std::string;
 
 // -- Utiliy functions for converting errno into CAF errors --------------------
@@ -745,25 +748,24 @@ bool read_datagram(size_t& result, native_socket fd, void* buf, size_t buf_len,
     CAF_LOG_INFO("Received empty datagram");
   result = (sres > 0) ? static_cast<size_t>(sres) : 0;
   auto src = sender_from_sockaddr(ep);
-  std::cout << "[rd] received datagram of " << result << " bytes from "
-            << std::get<0>(src) << ":" << std::get<1>(src) << std::endl;
+//  std::cout << "[rd] received datagram of " << result << " bytes from "
+//            << std::get<0>(src) << ":" << std::get<1>(src) << std::endl;
   return true;
 }
 
 bool write_datagram(size_t& result, native_socket fd, void* buf, size_t buf_len,
                     ip_endpoint& ep) {
   CAF_LOG_TRACE(CAF_ARG(fd) << CAF_ARG(buf_len));
-  std::this_thread::sleep_for(std::chrono::seconds(10));
-  auto dest = sender_from_sockaddr(ep);
-  socklen_t socklen = ep.len; //sizeof(sockaddr_in6);
-  std::cout << "[wd] sending datagram of " << buf_len << " bytes to "
-            << std::get<0>(dest) << ":" << std::get<1>(dest)
-            << ", addr len = " << socklen
-            << std::endl;
-  dump_sockaddr(ep.addr);
+//  auto dest = sender_from_sockaddr(ep);
+//  socklen_t socklen = ep.len; //sizeof(sockaddr_in6);
+//  std::cout << "[wd] sending datagram of " << buf_len << " bytes to "
+//            << std::get<0>(dest) << ":" << std::get<1>(dest)
+//            << ", addr len = " << socklen
+//            << std::endl;
+//  dump_sockaddr(ep.addr);
   auto sres = ::sendto(fd, reinterpret_cast<socket_send_ptr>(buf), buf_len,
                        0, reinterpret_cast<sockaddr*>(&ep.addr),
-                       socklen); //ep.len);
+                       ep.len);
   if (is_error(sres, true)) {
     CAF_LOG_ERROR("sendto returned" << CAF_ARG(sres));
     std::cout << "[wd] sendto failed: " << last_socket_error_as_string()
@@ -871,7 +873,7 @@ void default_multiplexer::close_pipe() {
 
 void default_multiplexer::handle_socket_event(native_socket fd, int mask,
                                               event_handler* ptr) {
-  std::cout << "[hse] got socket event to handle." << std::endl;
+//  std::cout << "[hse] got socket event to handle." << std::endl;
   CAF_LOG_TRACE(CAF_ARG(fd) << CAF_ARG(mask));
   CAF_ASSERT(ptr != nullptr);
   bool checkerror = true;
@@ -879,18 +881,18 @@ void default_multiplexer::handle_socket_event(native_socket fd, int mask,
     checkerror = false;
     // ignore read events if a previous event caused
     // this socket to be shut down for reading
-    if (!ptr->read_channel_closed())
-      std::cout << "[hse] it's a read event" << std::endl;
+//    if (!ptr->read_channel_closed())
+//      std::cout << "[hse] it's a read event" << std::endl;
     if (!ptr->read_channel_closed())
       ptr->handle_event(operation::read);
   }
   if ((mask & output_mask) != 0) {
     checkerror = false;
-    std::cout << "[hse] it's a write event" << std::endl;
+//    std::cout << "[hse] it's a write event" << std::endl;
     ptr->handle_event(operation::write);
   }
   if (checkerror && ((mask & error_mask) != 0)) {
-    std::cout << "[hse] it's an error" << std::endl;
+//    std::cout << "[hse] it's an error" << std::endl;
     CAF_LOG_DEBUG("error occured on socket:"
                   << CAF_ARG(fd) << CAF_ARG(last_socket_error())
                   << CAF_ARG(last_socket_error_as_string()));
@@ -969,30 +971,35 @@ expected<doorman_ptr> default_multiplexer::new_tcp_doorman(uint16_t port,
   return std::move(fd.error());
 }
 
-dgram_servant_ptr default_multiplexer::new_dgram_servant(native_socket fd) {
-  CAF_LOG_TRACE(CAF_ARG(fd));
+dgram_servant_ptr
+new_dgram_servant_with_handler(
+  std::shared_ptr<dgram_handler_impl<udp_policy>> ptr,
+  int64_t id
+) {
+CAF_LOG_TRACE(CAF_ARG(fd));
   CAF_ASSERT(fd != network::invalid_native_socket);
   class impl : public dgram_servant {
     using handler_type = dgram_handler_impl<udp_policy>;
   public:
-    impl(default_multiplexer& mx, native_socket sockfd, int64_t id)
-      : dgram_servant(dgram_handle::from_int(id)),
-        launched_(false),
-        handler_ptr_(std::make_shared<handler_type>(mx, sockfd)) {
-      std::cout << "servant has id = " << id 
-                << ", sockfd = " << sockfd << std::endl;
-      // nop
-    }
+//    impl(default_multiplexer& mx, native_socket sockfd, int64_t id)
+//      : dgram_servant(dgram_handle::from_int(id)),
+//        launched_(false),
+//        handler_ptr_(std::make_shared<handler_type>(mx, sockfd)) {
+//      std::cout << "[nds] {" << id << "} is a new servant"  << std::endl;
+//      // nop
+//    }
     impl(std::shared_ptr<handler_type> ptr, int64_t id)
       : dgram_servant(dgram_handle::from_int(id)),
         launched_(false),
         handler_ptr_(ptr) {
+      std::cout << "[nds] {" << id << "} is a new servant"  << std::endl;
       // nop
     }
     // TODO: something akin to new_connection,
     //       but called when a new endpoint is encounterd
     bool new_endpoint(ip_endpoint& ep, std::vector<char>& buf) override {
-      std::cout << "Encountered new remote endpoint" << std::endl;
+      std::cout << "[ne] {" << hdl().id() << "} encountered new endpoint: "
+                << to_string(ep) << std::endl;
       CAF_LOG_TRACE("");
       if (detached())
          // we are already disconnected from the broker while the multiplexer
@@ -1001,13 +1008,10 @@ dgram_servant_ptr default_multiplexer::new_dgram_servant(native_socket fd) {
          // further activities for the broker
          return false;
       auto& dm = handler_ptr_->backend();
-      auto sptr = dm.new_dgram_servant_for_endpoint(handler_ptr_->fd(), ep);
-      // auto hdl = sptr->hdl();
-      parent()->add_dgram_servant(std::move(sptr));
-      // return dgram_servant::new_endpoint(&dm, hdl);
-      // TODO: send message to broker as the new endpoint ...
-      // currently simply using consume, could use a separate function instead?
-      // although that would just do the same ...
+      auto id = dm.next_endpoint_id();
+      auto sptr = new_dgram_servant_with_handler(handler_ptr_, id);
+      sptr->add_endpoint(ep);
+      parent()->add_dgram_servant(sptr);
       return sptr->consume(&dm, buf);
     }
     void configure_datagram_size(size_t buf_size) override {
@@ -1021,6 +1025,8 @@ dgram_servant_ptr default_multiplexer::new_dgram_servant(native_socket fd) {
       handler_ptr_->ack_writes(enable);
     }
     std::vector<char>& wr_buf() override {
+      std::cout << "[wb] {" << hdl().id() << "} is getting a new job"
+                << std::endl;
       return handler_ptr_->wr_buf(hdl().id());
     }
     std::vector<char>& rd_buf() override {
@@ -1059,7 +1065,7 @@ dgram_servant_ptr default_multiplexer::new_dgram_servant(native_socket fd) {
       handler_ptr_->add_endpoint(hdl().id(), ep, this);
     }
     void launch() override {
-      std::cout << "Launching servant." << std::endl;
+//      std::cout << "[l] " << hdl().id() << std::endl;
       CAF_LOG_TRACE("");
       CAF_ASSERT(!launched_);
       launched_ = true;
@@ -1078,12 +1084,23 @@ dgram_servant_ptr default_multiplexer::new_dgram_servant(native_socket fd) {
     ip_endpoint ep_;
     std::shared_ptr<handler_type>  handler_ptr_;
   };
-  return make_counted<impl>(*this, fd, next_endpoint_id());
+  return make_counted<impl>(ptr, id);
+}
+
+dgram_servant_ptr default_multiplexer::new_dgram_servant(native_socket fd) {
+  CAF_LOG_TRACE(CAF_ARG(fd));
+  CAF_ASSERT(fd != network::invalid_native_socket);
+  using handler_type = dgram_handler_impl<udp_policy>;
+  return new_dgram_servant_with_handler(
+    std::make_shared<handler_type>(*this, fd),
+    next_endpoint_id()
+  );
 }
 
 dgram_servant_ptr
 default_multiplexer::new_dgram_servant_for_endpoint(native_socket fd,
                                                     ip_endpoint& ep) {
+  CAF_LOG_TRACE(CAF_ARG(ep));
   auto ds = new_dgram_servant(fd);
   ds->add_endpoint(ep);
   return ds;
@@ -1092,8 +1109,8 @@ default_multiplexer::new_dgram_servant_for_endpoint(native_socket fd,
 expected<dgram_servant_ptr>
 default_multiplexer::new_remote_udp_endpoint(const std::string& host,
                                              uint16_t port) {
-  std::cout << "Creating new servant for remote UDP endpoint "
-            << host << ":" << port << std::endl;
+//  std::cout << "Creating new servant for remote UDP endpoint "
+//            << host << ":" << port << std::endl;
   auto res = new_remote_udp_endpoint_impl(host, port);
   if (!res)
     return std::move(res.error());
@@ -1134,12 +1151,12 @@ void event_handler::close_read_channel() {
 }
 
 void event_handler::passivate() {
-  std::cout << "Deregistering servant for read events" << std::endl;
+//  std::cout << "[p] deregistering servant for read events" << std::endl;
   backend().del(operation::read, fd(), this);
 }
 
 void event_handler::activate() {
-  std::cout << "Registering servant for read events" << std::endl;
+//  std::cout << "[a] registering servant for read events" << std::endl;
   backend().add(operation::read, fd(), this);
 }
 
@@ -1342,8 +1359,13 @@ void acceptor::removed_from_loop(operation op) {
 dgram_handler::dgram_handler(default_multiplexer& backend_ref, native_socket sockfd)
   : event_handler(backend_ref, sockfd),
     dgram_size_(1500), // TODO: choose adequate size
-    host_(""),
-    port_(0) {
+    ack_writes_(false),
+    writing_(false) {
+  std::mt19937 rng;
+  rng.seed(std::random_device()());
+  std::uniform_int_distribution<std::mt19937::result_type> dist(1000,10000);
+  unique_id_ = dist(rng);
+  std::cout << " ### created <" << unique_id_ << "> ###" << std::endl;
   // nop
 }
 
@@ -1388,7 +1410,7 @@ void dgram_handler::flush(id_type id, ip_endpoint& ep,
     auto itr = from_id_.find(id);
     if (itr == from_id_.end()) {
       add_endpoint(id, ep, mgr);
-      throw std::runtime_error("Looks like this does actually happen.");
+      throw std::runtime_error("Looks like this does actually happen!");
     }
     writing_ = true;
     prepare_next_write();
@@ -1398,6 +1420,8 @@ void dgram_handler::flush(id_type id, ip_endpoint& ep,
 // TODO: should this be a reference because we can't move endpoints?
 void dgram_handler::add_endpoint(id_type id, ip_endpoint& ep,
                                  const manager_ptr mgr) {
+  std::cout << "[ae] <" << unique_id_ << "> got new endpoint ("
+            << id << ", " << to_string(ep) << ")" << std::endl;
   auto data = make_counted<endpoint_data>(ep, mgr);
   from_ep_[ep] = data;
   from_id_[id] = data;
@@ -1442,6 +1466,8 @@ void dgram_handler::prepare_next_write() {
               << " jobs" << std::endl;
     wr_buf_.swap(wr_offline_buf_.front());
     wr_offline_buf_.pop_front();
+    std::cout << "[pnw] {" << wr_buf_.first << "} will write "
+              << wr_buf_.second.size() << " bytes" << std::endl;
   }
 }
 
@@ -1575,13 +1601,11 @@ expected<void> read_port(native_socket fd, SockAddrType& sa) {
 }
 
 expected<void> set_inaddr_any(native_socket, sockaddr_in& sa) {
-  std::cout << "[sia] ipv4" << std::endl;
   sa.sin_addr.s_addr = INADDR_ANY;
   return unit;
 }
 
 expected<void> set_inaddr_any(native_socket fd, sockaddr_in6& sa) {
-  std::cout << "[sia] ipv6" << std::endl;
   sa.sin6_addr = in6addr_any;
   // also accept ipv4 requests on this socket
   int off = 0;
@@ -1677,10 +1701,10 @@ new_remote_udp_endpoint_impl(const std::string& host, uint16_t port,
   memset(&std::get<1>(info), 0, sizeof(sockaddr_storage));
   if (!interfaces::get_endpoint(host, port, std::get<1>(info), (*lep).second))
     return make_error(sec::cannot_connect_to_node, "no such host", host, port);
-  dump_sockaddr(std::get<1>(info).addr);
-  auto dest = sender_from_sockaddr(std::get<1>(info));
-  std::cout << "[nrue] endpoint available at " << std::get<0>(dest)
-            << ":" << std::get<1>(dest) << std::endl;
+//  dump_sockaddr(std::get<1>(info).addr);
+//  auto dest = sender_from_sockaddr(std::get<1>(info));
+//  std::cout << "[nrue] endpoint available at " << std::get<0>(dest)
+//            << ":" << std::get<1>(dest) << std::endl;
   get<0>(info) = sguard.release();
   return info;
 }
@@ -1717,8 +1741,8 @@ new_local_udp_endpoint_impl(uint16_t port, const char* addr, bool reuse,
                       port, addr_str);
   }
   CAF_LOG_DEBUG(CAF_ARG(fd));
-  std::cout << "[nlue] opened local socket " << fd << " on port "
-            << local_port_of_fd(fd) << std::endl;
+//  std::cout << "[nlue] opened local socket " << fd << " on port "
+//            << local_port_of_fd(fd) << std::endl;
   return std::make_pair(fd, proto);
 }
 
