@@ -1105,7 +1105,7 @@ default_multiplexer::new_local_udp_endpoint(uint16_t port, const char* in,
                                             bool reuse_addr) {
   auto res = new_local_udp_endpoint_impl(port, in, reuse_addr);
   if (res)
-    return new_dgram_servant(*res);
+    return new_dgram_servant((*res).first);
   return std::move(res.error());
 }
 
@@ -1669,14 +1669,13 @@ new_remote_udp_endpoint_impl(const std::string& host, uint16_t port,
   CAF_LOG_TRACE(CAF_ARG(host) << CAF_ARG(port) << CAF_ARG(preferred));
   // TODO: Include a setting for reuse addr (currently always false)
   auto reuse = false;
-  auto fd = new_local_udp_endpoint_impl(0, nullptr, reuse, preferred);
-  if (!fd)
-    return fd.error();
-  socket_guard sguard{*fd};
+  auto lep = new_local_udp_endpoint_impl(0, nullptr, reuse, preferred);
+  if (!lep)
+    return std::move(lep.error());
+  socket_guard sguard{(*lep).first};
   std::pair<native_socket, ip_endpoint> info;
   memset(&std::get<1>(info), 0, sizeof(sockaddr_storage));
-  auto proto = std::get<1>(info).addr.ss_family == AF_INET ? ipv4 : ipv6;
-  if (!interfaces::get_endpoint(host, port, std::get<1>(info), proto))
+  if (!interfaces::get_endpoint(host, port, std::get<1>(info), (*lep).second))
     return make_error(sec::cannot_connect_to_node, "no such host", host, port);
   dump_sockaddr(std::get<1>(info).addr);
   auto dest = sender_from_sockaddr(std::get<1>(info));
@@ -1686,7 +1685,7 @@ new_remote_udp_endpoint_impl(const std::string& host, uint16_t port,
   return info;
 }
 
-expected<native_socket>
+expected<std::pair<native_socket, protocol>>
 new_local_udp_endpoint_impl(uint16_t port, const char* addr, bool reuse,
                             optional<protocol> preferred) {
   CAF_LOG_TRACE(CAF_ARG(port) << ", addr = " << (addr ? addr : "nullptr"));
@@ -1697,6 +1696,7 @@ new_local_udp_endpoint_impl(uint16_t port, const char* addr, bool reuse,
                       addr_str);
   bool any = addr_str.empty() || addr_str == "::" || addr_str == "0.0.0.0";
   auto fd = invalid_native_socket;
+  protocol proto;
   for (auto& elem : addrs) {
     auto host = elem.first.c_str();
     auto p = elem.second == ipv4
@@ -1707,6 +1707,7 @@ new_local_udp_endpoint_impl(uint16_t port, const char* addr, bool reuse,
       continue;
     }
     fd = *p;
+    proto = elem.second;
     break;
   }
   if (fd == invalid_native_socket) {
@@ -1718,7 +1719,7 @@ new_local_udp_endpoint_impl(uint16_t port, const char* addr, bool reuse,
   CAF_LOG_DEBUG(CAF_ARG(fd));
   std::cout << "[nlue] opened local socket " << fd << " on port "
             << local_port_of_fd(fd) << std::endl;
-  return fd;
+  return std::make_pair(fd, proto);
 }
 
 expected<std::string> local_addr_of_fd(native_socket fd) {

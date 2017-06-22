@@ -991,7 +991,7 @@ expected<std::pair<native_socket, ip_endpoint>>
 new_remote_udp_endpoint_impl(const std::string& host, uint16_t port,
                              optional<protocol> preferred = none);
 
-expected<native_socket>
+expected<std::pair<native_socket, protocol>>
 new_local_udp_endpoint_impl(uint16_t port, const char* addr,
                             bool reuse_addr = false,
                             optional<protocol> preferred = none);
