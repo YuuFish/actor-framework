@@ -848,7 +848,7 @@ protected:
           ctx->writer->io_failure(&backend(), operation::write);
           backend().del(operation::write, fd(), this);
         } else if (wb > 0) {
-          CAF_ASSERT(wb == wr_buf_.size());
+          CAF_ASSERT(wb == wr_buf_.second.size());
           if (ack_writes_)
             ctx->writer->datagram_sent(&backend(), wb);
           prepare_next_write();

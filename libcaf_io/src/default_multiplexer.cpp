@@ -976,8 +976,7 @@ new_dgram_servant_with_handler(
   std::shared_ptr<dgram_handler_impl<udp_policy>> ptr,
   int64_t id
 ) {
-CAF_LOG_TRACE(CAF_ARG(fd));
-  CAF_ASSERT(fd != network::invalid_native_socket);
+  CAF_LOG_TRACE(CAF_ARG(id));
   class impl : public dgram_servant {
     using handler_type = dgram_handler_impl<udp_policy>;
   public:
