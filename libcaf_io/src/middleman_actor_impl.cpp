@@ -59,7 +59,7 @@ middleman_actor_impl::middleman_actor_impl(actor_config& cfg,
     e = cached_udp_.end();
     while (i != e) {
       if (get<1>(i->second) == dm.source)
-        i = cached_tcp_.erase(i);
+        i = cached_udp_.erase(i);
       else
         ++i;
     }
