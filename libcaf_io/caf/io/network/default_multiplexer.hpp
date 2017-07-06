@@ -762,12 +762,12 @@ public:
   /// Closes the read channel of the underlying socket and removes
   /// this handler from its parent.
   void stop_reading();
-
+  
   void removed_from_loop(operation op) override;
 
   void add_endpoint(id_type id, ip_endpoint& ep, const manager_ptr mgr);
-//  void remove_endpoint(id_type id);
-//  void remove_endpoint(ip_endpoint& ep);
+  
+  void remove_endpoint(id_type id);
 
 protected:
   template <class Policy>
@@ -793,20 +793,27 @@ protected:
             // TODO: sent as the new endpoint
             auto itr = from_ep_.find(sender_);
 //            std::cout << "[he] received " << rb << " bytes from "
-//                      << to_string(sender_) << " ("
-//                      << (itr == from_ep_.end() ? "unknown" : "known")
-//                      << ")" << std::endl;
+//                      << to_string(sender_) << std::endl;
 //            std::cout << "[he] known endpoints: " << std::endl;
-//            for (auto& elem : from_ep_)
-//              std::cout << " > " << to_string(elem.first) << std::endl;
-//            bool consumed = false;
-//            if (itr == from_ep_.end())
-//              consumed = reader_->new_endpoint(sender_, rd_buf_);
+//            if (from_ep_.empty())
+//              std::cout << " > NONE" << std::endl;
 //            else
-//              consumed = itr->second->writer->consume(&backend(), rd_buf_);
-            auto consumed = (itr == from_ep_.end())
-              ? reader_->new_endpoint(sender_, rd_buf_)
-              : itr->second->writer->consume(&backend(), rd_buf_);
+//              for (auto& elem : from_ep_)
+//                std::cout << " > " << to_string(elem.first) << std::endl;
+            bool consumed = false;
+            if (itr == from_ep_.end()) {
+              consumed = reader_->new_endpoint(sender_, rd_buf_);
+            } else {
+              if (!itr->second->writer) {
+                std::cout << "Something went wrong, servant for '"
+                          << to_string(sender_) << "' is invalid" << std::endl;
+                abort();
+              }
+              consumed = itr->second->writer->consume(&backend(), rd_buf_);
+            }
+//            auto consumed = (itr == from_ep_.end())
+//              ? reader_->new_endpoint(sender_, rd_buf_)
+//              : itr->second->writer->consume(&backend(), rd_buf_);
             bytes_read_ = rb;
             prepare_next_read();
             if (!consumed) {

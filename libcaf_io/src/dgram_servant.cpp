@@ -44,12 +44,14 @@ bool dgram_servant::consume(execution_unit* ctx, std::vector<char>& buf) {
   // TODO: change signature to use vector<char> for passing the buffer!
   CAF_ASSERT(ctx != nullptr);
   CAF_LOG_TRACE(CAF_ARG(buf.size()));
-  if (detached())
+  if (detached()) {
     // we are already disconnected from the broker while the multiplexer
     // did not yet remove the socket, this can happen if an I/O event causes
     // the broker to call close_all() while the pollset contained
     // further activities for the broker
+    std::cout << "[c] but is alread detached" << std::endl;
     return false;
+  }
   // keep a strong reference to our parent until we leave scope
   // to avoid UB when becoming detached during invocation
   /*
@@ -91,6 +93,7 @@ void dgram_servant::datagram_sent(execution_unit* ctx, size_t written) {
 }
 
 void dgram_servant::io_failure(execution_unit* ctx, network::operation op) {
+  std::cout << "[if] on operation " << to_string(op) << std::endl;
   CAF_LOG_TRACE(CAF_ARG(hdl()) << CAF_ARG(op));
   // keep compiler happy when compiling w/o logging
   static_cast<void>(op);

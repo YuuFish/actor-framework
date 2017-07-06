@@ -319,7 +319,7 @@ bool instance::handle(execution_unit* ctx, new_datagram_msg& dm,
   // Message arrived as expected
   ep.seq_incoming += 1;
   // TODO: Add optional reliability here (send acks, ...)
-  if (!handle(ctx, dm.handle, ep.hdr, payload, false, ep, none))
+  if (!handle(ctx, dm.handle, ep.hdr, payload, false, ep, ep.local_port))
     return err();
   // Look for pending messages
   if (!callee_.deliver_pending(ctx, ep))
@@ -472,6 +472,7 @@ void instance::write_server_handshake(execution_unit* ctx,
                                       buffer_type& out_buf,
                                       optional<uint16_t> port,
                                       uint16_t sequence_number) {
+  std::cout << "[wsh] for port " << to_string(port) << std::endl;
   CAF_LOG_TRACE(CAF_ARG(port));
   using namespace detail;
   published_actor* pa = nullptr;

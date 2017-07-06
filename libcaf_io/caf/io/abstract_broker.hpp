@@ -268,6 +268,8 @@ public:
   /// Returns the remote port associated to `hdl`
   /// or `0` if `hdl` is invalid.
   uint16_t local_port(dgram_handle hdl);
+  
+  bool remove_endpoint(dgram_handle hdl);
 
   /// Closes all connections and acceptors.
   void close_all();

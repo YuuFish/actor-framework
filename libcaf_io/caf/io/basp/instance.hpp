@@ -253,6 +253,7 @@ public:
     // handle message to ourselves
     switch (hdr.operation) {
       case message_type::server_handshake: {
+        std::cout << "[h] server handshake" << std::endl;
         actor_id aid = invalid_actor_id;
         std::set<std::string> sigs;
         if (payload_valid()) {
@@ -305,6 +306,7 @@ public:
         break;
       }
       case message_type::client_handshake: {
+        std::cout << "[h] client handshake" << std::endl;
         auto is_known_node = tbl_.lookup_direct(hdr.source_node);
         if (is_known_node && tcp_based) {
           CAF_LOG_INFO("received second client handshake:"
@@ -334,8 +336,8 @@ public:
         }
         if (!tcp_based) {
           auto seq = (ep && ep->requires_ordering) ? ep->seq_outgoing++ : 0;
-          // TODO: clean this up, the access to the iterator looks strange.
-          write_server_handshake(ctx, wr_buf_.ptr_->wr_buf(hdl), port, seq);
+          // TODO: clean this up, visitors are a hack to access abstract broker
+          write_server_handshake(ctx, wr_buf_(hdl), port, seq);
           wr_buf_.ptr_->flush(hdl);
         }
         if (!is_known_node) {
@@ -345,6 +347,7 @@ public:
         break;
       }
       case message_type::dispatch_message: {
+        std::cout << "[h] dispatch message" << std::endl;
         if (!payload_valid())
           return false;
         // in case the sender of this message was received via a third node,
@@ -380,9 +383,11 @@ public:
         break;
       }
       case message_type::announce_proxy:
+        std::cout << "[h] announce proxy" << std::endl;
         callee_.proxy_announced(hdr.source_node, hdr.dest_actor);
         break;
       case message_type::kill_proxy: {
+        std::cout << "[h] kill proxy" << std::endl;
         if (!payload_valid())
           return false;
         binary_deserializer bd{ctx, *payload};
@@ -394,11 +399,13 @@ public:
         break;
       }
       case message_type::heartbeat: {
+        std::cout << "[h] heartbeat" << std::endl;
         CAF_LOG_TRACE("received heartbeat: " << CAF_ARG(hdr.source_node));
         callee_.handle_heartbeat(hdr.source_node);
         break;
       }
       default:
+        std::cout << "[h] invalid" << std::endl;
         CAF_LOG_ERROR("invalid operation");
         return false;
     }

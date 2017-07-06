@@ -173,7 +173,7 @@ auto middleman_actor_impl::make_behavior() -> behavior_type {
         rps->emplace_back(std::move(rp));
         return {};
       }
-      // connect to endpoint and initiate handhsake etc.
+      // connect to endpoint and initiate handshake etc.
       auto r = contact(key.first, port);
       if (!r) {
         rp.deliver(std::move(r.error()));
@@ -185,6 +185,8 @@ auto middleman_actor_impl::make_behavior() -> behavior_type {
       request(broker_, infinite, contact_atom::value, std::move(ptr), port)
         .then(
           [=](node_id& nid, strong_actor_ptr& addr, mpi_set& sigs) {
+            std::cout << "[mm] connect answer is " << to_string(nid) << ", "
+                      << to_string(addr) << std::endl;
             auto i = pending_.find(key);
             if (i == pending_.end())
               return;
@@ -199,6 +201,7 @@ auto middleman_actor_impl::make_behavior() -> behavior_type {
             pending_.erase(i);
           },
           [=](error& err) {
+            std::cout << "[mm] connect failed " << to_string(err) << std::endl;
             auto i = pending_.find(key);
             if (i == pending_.end())
               return;

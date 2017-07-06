@@ -121,17 +121,21 @@ execution_unit* basp_broker_state::registry_context() {
 
 void basp_broker_state::finalize_handshake(const node_id& nid, actor_id aid,
                                            std::set<std::string>& sigs) {
+  std::cout << "[fh] for " << to_string(nid) << " + " << aid << std::endl;
   CAF_LOG_TRACE(CAF_ARG(nid) << CAF_ARG(aid) << CAF_ARG(sigs));
   CAF_ASSERT(this_context != nullptr);
   this_context->id = nid;
   auto& cb = this_context->callback;
-  if (!cb)
+  if (!cb) {
+    std::cout << "[fh] No callback available" << std::endl;
     return;
+  }
   auto cleanup = detail::make_scope_guard([&] {
     cb = none;
   });
   strong_actor_ptr ptr;
   if (aid == invalid_actor_id) {
+    std::cout << "[fh] encountered invalid actor" << std::endl;
     // can occur when connecting to the default port of a node
     cb->deliver(nid, ptr, std::move(sigs));
     return;
@@ -144,6 +148,7 @@ void basp_broker_state::finalize_handshake(const node_id& nid, actor_id aid,
     ptr = namespace_.get_or_put(nid, aid);
     CAF_LOG_ERROR_IF(!ptr, "creating actor in finalize_handshake failed");
   }
+  std::cout << "[fh] delivering callback" << std::endl;
   cb->deliver(make_message(nid, ptr, std::move(sigs)));
   this_context->callback = none;
 }
@@ -485,7 +490,7 @@ void basp_broker_state::set_context(connection_handle hdl) {
         basp::header{basp::message_type::server_handshake, 0,
                      0, 0, none, none,
                      invalid_actor_id, invalid_actor_id},
-        hdl, none, 0, none,
+        hdl, none, 0, 0, none,
         false, 0, 0, {}
       }
     ).first;
@@ -505,7 +510,7 @@ void basp_broker_state::set_context(dgram_handle hdl) {
         basp::header{basp::message_type::server_handshake,
                      0, 0, 0, none, none,
                      invalid_actor_id, invalid_actor_id},
-        hdl, none, 0, none,
+        hdl, none, 0, 0, none,
         true, 0, 0, {}
       }
     ).first;
@@ -612,17 +617,23 @@ behavior basp_broker::make_behavior() {
     // received from underlying broker implementation
     [=](new_datagram_msg& msg) {
       std::cout << "[bb] received `new_datagram_msg` on port "
-                << local_port(msg.handle) << std::endl;
+                << local_port(msg.handle) << " from {"
+                << msg.handle.id() << "}" << std::endl;
       CAF_LOG_TRACE(CAF_ARG(msg.handle));
       state.set_context(msg.handle);
       auto& ctx = *state.this_context;
+      if (ctx.local_port == 0)
+        ctx.local_port = local_port(msg.handle);
+      // TODO: if the port is used each time,
+      // maybe we can include it in the message ... or buffer it somewhere.
       if (!state.instance.handle(context(), msg, ctx)) {
         if (ctx.callback) {
           CAF_LOG_WARNING("failed to handshake with remote node"
                           << CAF_ARG(msg.handle));
           ctx.callback->deliver(make_error(sec::disconnect_during_handshake));
         }
-        close(msg.handle);
+//        close(msg.handle);
+        remove_endpoint(msg.handle);
         state.ctx_udp.erase(msg.handle);
       } else {
         configure_datagram_size(msg.handle, 1500);
@@ -767,12 +778,15 @@ behavior basp_broker::make_behavior() {
       CAF_LOG_TRACE(CAF_ARG(ptr) << CAF_ARG(host) << CAF_ARG(port));
 //      std::cout << "BASP broker received `contact` atom for port "
 //                << port << std::endl;
+      std::cout << "[contact] using servant {" << ptr->hdl().id() << "}"
+                << std::endl;
       auto rp = make_response_promise();
       auto hdl = ptr->hdl();
       add_dgram_servant(ptr);
       auto& ctx = state.ctx_udp[hdl];
       ctx.hdl = hdl;
       ctx.remote_port = port;
+      ctx.local_port = local_port(hdl);
       ctx.callback = rp;
       ctx.requires_ordering = true;
       ctx.seq_incoming = 0;
@@ -783,6 +797,7 @@ behavior basp_broker::make_behavior() {
       flush(hdl);
       // TODO: fix buffer size determination
       configure_datagram_size(hdl, 1500);
+      // TODO: set timeout
     },
     // received from underlying broker implementation
     [=](const dgram_servant_closed_msg& msg) {

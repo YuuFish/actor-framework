@@ -66,6 +66,8 @@ public:
   /// Adds a new remote endpoint identified by the `ip_endpoint` to
   /// the related manager.
   virtual void add_endpoint(network::ip_endpoint& ep) = 0;
+  
+  virtual void remove_endpoint() = 0;
 
   void io_failure(execution_unit* ctx, network::operation op) override;
 

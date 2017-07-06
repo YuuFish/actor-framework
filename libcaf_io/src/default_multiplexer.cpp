@@ -981,13 +981,6 @@ CAF_LOG_TRACE(CAF_ARG(fd));
   class impl : public dgram_servant {
     using handler_type = dgram_handler_impl<udp_policy>;
   public:
-//    impl(default_multiplexer& mx, native_socket sockfd, int64_t id)
-//      : dgram_servant(dgram_handle::from_int(id)),
-//        launched_(false),
-//        handler_ptr_(std::make_shared<handler_type>(mx, sockfd)) {
-//      std::cout << "[nds] {" << id << "} is a new servant"  << std::endl;
-//      // nop
-//    }
     impl(std::shared_ptr<handler_type> ptr, int64_t id)
       : dgram_servant(dgram_handle::from_int(id)),
         launched_(false),
@@ -995,8 +988,9 @@ CAF_LOG_TRACE(CAF_ARG(fd));
       std::cout << "[nds] {" << id << "} is a new servant"  << std::endl;
       // nop
     }
-    // TODO: something akin to new_connection,
-    //       but called when a new endpoint is encounterd
+    ~impl() {
+      std::cout << "[~] destructing {" << hdl().id() << "}" << std::endl;
+    }
     bool new_endpoint(ip_endpoint& ep, std::vector<char>& buf) override {
       std::cout << "[ne] {" << hdl().id() << "} encountered new endpoint: "
                 << to_string(ep) << std::endl;
@@ -1064,8 +1058,10 @@ CAF_LOG_TRACE(CAF_ARG(fd));
       ep_ = ep;
       handler_ptr_->add_endpoint(hdl().id(), ep, this);
     }
+    void remove_endpoint() override {
+      handler_ptr_->remove_endpoint(hdl().id());
+    }
     void launch() override {
-//      std::cout << "[l] " << hdl().id() << std::endl;
       CAF_LOG_TRACE("");
       CAF_ASSERT(!launched_);
       launched_ = true;
@@ -1403,17 +1399,24 @@ void dgram_handler::write(id_type id, const void* buf, size_t num_bytes) {
 
 void dgram_handler::flush(id_type id, ip_endpoint& ep,
                           const manager_ptr& mgr) {
+  std::cout << "[f] {" << id << "} for " << to_string(ep) << std::endl;
   CAF_ASSERT(mgr != nullptr);
   CAF_LOG_TRACE(CAF_ARG(wr_offline_buf_.size()));
   if (!wr_offline_buf_.empty() && !writing_) {
     backend().add(operation::write, fd(), this);
     auto itr = from_id_.find(id);
-    if (itr == from_id_.end()) {
+    if (itr == from_id_.end() || !itr->second->writer ) {
       add_endpoint(id, ep, mgr);
       throw std::runtime_error("Looks like this does actually happen!");
+    } else {
+      std::cout << "[f] writer still available." << std::endl;
     }
     writing_ = true;
     prepare_next_write();
+  } else {
+    std::cout << "[f] !empty = " << std::boolalpha
+              << !wr_offline_buf_.empty()
+              << ", !writing = " << std::boolalpha << !writing_ << std::endl;
   }
 }
 
@@ -1422,15 +1425,31 @@ void dgram_handler::add_endpoint(id_type id, ip_endpoint& ep,
                                  const manager_ptr mgr) {
   auto itr = from_ep_.find(ep);
   if (itr == from_ep_.end()) {
-    std::cout << "[ae] <" << unique_id_ << "> got new endpoint ("
-              << id << ", " << to_string(ep) << ")" << std::endl;
+    std::cout << "[ae] <" << unique_id_ << "> got new endpoint {"
+              << id << "} handles " << to_string(ep) << std::endl;
     auto data = make_counted<endpoint_data>(ep, mgr);
+    if (!data->writer)
+      std::cout << "[ae] with invalid writer!" << std::endl;
     from_ep_[ep] = data;
     from_id_[id] = data;
+  } else if (!itr->second->writer) {
+    std::cout << "[ae] assigning manager to existing data" << std::endl;
+    itr->second->writer = mgr;
+    from_id_[id]->writer = mgr;
   } else {
     std::cout << "[ae] <" << unique_id_ << "> already knows "
               << to_string(ep) << "!" << std::endl;
     abort();
+  }
+}
+
+void dgram_handler::remove_endpoint(id_type id) {
+  std::cout << "[re] removing {" << id << "}" << std::endl;
+  CAF_LOG_TRACE(CAF_ARG(id));
+  auto itr = from_id_.find(id);
+  if (itr != from_id_.end()) {
+    from_ep_.erase(itr->second->endpoint);
+    from_id_.erase(itr);
   }
 }
 
@@ -1444,9 +1463,16 @@ void dgram_handler::removed_from_loop(operation op) {
   switch (op) {
     case operation::read: reader_.reset(); break;
     case operation::write:
-      for (auto& mngr : from_ep_)
-        mngr.second->writer.reset();
-      // TODO: clean lists?
+      std::cout << "[rfl] <" << unique_id_ << "> Resetting writers" << std::endl;
+      std::cout << "[rfl] IGNORED" << std::endl;
+      // TODO: maybe save readers and writers separately
+      // or change how the related state is handled ... or something
+//      from_ep_.clear();
+//      from_id_.clear();
+//      for (auto& mngr : from_ep_) {
+//        std::cout << "[rfl] > " << to_string(mngr.first) << std::endl;
+//        mngr.second->writer.reset();
+//      }
       break;
     case operation::propagate_error: break;
   };

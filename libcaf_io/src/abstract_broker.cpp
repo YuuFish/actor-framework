@@ -290,6 +290,14 @@ uint16_t abstract_broker::local_port(dgram_handle hdl) {
   return i != dgram_servants_.end() ? i->second->local_port() : 0;
 }
 
+bool abstract_broker::remove_endpoint(dgram_handle hdl) {
+  auto x = by_id(hdl);
+  if (!x)
+    return false;
+  x->remove_endpoint();
+  return true;
+}
+
 void abstract_broker::close_all() {
   CAF_LOG_TRACE("");
   while (!doormen_.empty()) {

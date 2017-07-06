@@ -44,8 +44,9 @@ struct endpoint_context {
   variant<connection_handle, dgram_handle> hdl;
   // network-agnostic node identifier
   node_id id;
-  // port
+  // ports
   uint16_t remote_port;
+  uint16_t local_port;
   // pending operations to be performed after handshake completed
   optional<response_promise> callback;
   // TODO: introduce some call to ask scribe for such info
