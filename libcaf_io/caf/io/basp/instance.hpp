@@ -21,6 +21,7 @@
 #define CAF_IO_BASP_INSTANCE_HPP
 
 #include "caf/error.hpp"
+#include "caf/variant.hpp"
 #include "caf/actor_system_config.hpp"
 #include "caf/binary_deserializer.hpp"
 
@@ -247,13 +248,13 @@ public:
   bool handle(execution_unit* ctx, const Handle& hdl, header& hdr,
               std::vector<char>* payload, bool tcp_based,
               optional<endpoint_context&> ep, optional<uint16_t> port) {
+    std::cout << "[h] " << to_string(hdr.operation) << std::endl;
     auto payload_valid = [&]() -> bool {
       return payload != nullptr && payload->size() == hdr.payload_len;
     };
     // handle message to ourselves
     switch (hdr.operation) {
       case message_type::server_handshake: {
-        std::cout << "[h] server handshake" << std::endl;
         actor_id aid = invalid_actor_id;
         std::set<std::string> sigs;
         if (payload_valid()) {
@@ -306,7 +307,6 @@ public:
         break;
       }
       case message_type::client_handshake: {
-        std::cout << "[h] client handshake" << std::endl;
         auto is_known_node = tbl_.lookup_direct(hdr.source_node);
         if (is_known_node && tcp_based) {
           CAF_LOG_INFO("received second client handshake:"
@@ -327,7 +327,9 @@ public:
           CAF_LOG_ERROR("fail to receive the app identifier");
           return false;
         }
-        if (!is_known_node) {
+        // TODO: think this should be here, but maybe ...
+        auto is_differnt_node = (this_node() != hdr.source_node);
+        if (!is_known_node && is_differnt_node) {
           // add direct route to this node and remove any indirect entry
           CAF_LOG_INFO("new direct connection:" << CAF_ARG(hdr.source_node));
           //auto was_indirect = tbl_.erase_indirect(hdr.source_node);
@@ -340,25 +342,24 @@ public:
           write_server_handshake(ctx, wr_buf_(hdl), port, seq);
           wr_buf_.ptr_->flush(hdl);
         }
-        if (!is_known_node) {
+        if (!is_known_node && is_differnt_node) {
           auto was_indirect = tbl_.erase_indirect(hdr.source_node);
           callee_.learned_new_node_directly(hdr.source_node, was_indirect);
         }
         break;
       }
       case message_type::dispatch_message: {
-        std::cout << "[h] dispatch message" << std::endl;
         if (!payload_valid())
           return false;
         // in case the sender of this message was received via a third node,
         // we assume that that node to offers a route to the original source
-        //auto last_hop = tbl_.lookup_node(dm.handle);
-        //if (hdr.source_node != none
-        //    && hdr.source_node != this_node_
-        //    && last_hop != hdr.source_node
-        //    && tbl_.lookup_direct(hdr.source_node) == invalid_connection_handle
-        //    && tbl_.add_indirect(last_hop, hdr.source_node))
-        //  callee_.learned_new_node_indirectly(hdr.source_node);
+        auto last_hop = tbl_.lookup_direct(hdl);
+        if (hdr.source_node != none
+            && hdr.source_node != this_node_
+            && last_hop != hdr.source_node
+            && tbl_.lookup_direct(hdr.source_node)
+            && tbl_.add_indirect(last_hop, hdr.source_node))
+          callee_.learned_new_node_indirectly(hdr.source_node);
         binary_deserializer bd{ctx, *payload};
         auto receiver_name = static_cast<atom_value>(0);
         std::vector<strong_actor_ptr> forwarding_stack;
@@ -383,11 +384,9 @@ public:
         break;
       }
       case message_type::announce_proxy:
-        std::cout << "[h] announce proxy" << std::endl;
         callee_.proxy_announced(hdr.source_node, hdr.dest_actor);
         break;
       case message_type::kill_proxy: {
-        std::cout << "[h] kill proxy" << std::endl;
         if (!payload_valid())
           return false;
         binary_deserializer bd{ctx, *payload};
@@ -399,13 +398,11 @@ public:
         break;
       }
       case message_type::heartbeat: {
-        std::cout << "[h] heartbeat" << std::endl;
         CAF_LOG_TRACE("received heartbeat: " << CAF_ARG(hdr.source_node));
         callee_.handle_heartbeat(hdr.source_node);
         break;
       }
       default:
-        std::cout << "[h] invalid" << std::endl;
         CAF_LOG_ERROR("invalid operation");
         return false;
     }

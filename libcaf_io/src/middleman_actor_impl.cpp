@@ -185,8 +185,8 @@ auto middleman_actor_impl::make_behavior() -> behavior_type {
       request(broker_, infinite, contact_atom::value, std::move(ptr), port)
         .then(
           [=](node_id& nid, strong_actor_ptr& addr, mpi_set& sigs) {
-            std::cout << "[mm] connect answer is " << to_string(nid) << ", "
-                      << to_string(addr) << std::endl;
+//            std::cout << "[mm] contact answer is " << to_string(nid) << ", "
+//                      << to_string(addr) << std::endl;
             auto i = pending_.find(key);
             if (i == pending_.end())
               return;
@@ -201,7 +201,7 @@ auto middleman_actor_impl::make_behavior() -> behavior_type {
             pending_.erase(i);
           },
           [=](error& err) {
-            std::cout << "[mm] connect failed " << to_string(err) << std::endl;
+//            std::cout << "[mm] contact failed " << to_string(err) << std::endl;
             auto i = pending_.find(key);
             if (i == pending_.end())
               return;
@@ -213,17 +213,20 @@ auto middleman_actor_impl::make_behavior() -> behavior_type {
     },
     // TODO: implement unpublish, open and close for UDP
     [=](unpublish_atom atm, actor_addr addr, uint16_t p) -> del_res {
+      std::cout << "[mm] unpublish!" << std::endl;
       CAF_LOG_TRACE("");
       delegate(broker_, atm, std::move(addr), p);
       return {};
     },
     [=](close_atom atm, uint16_t p) -> del_res {
+      std::cout << "[mm] close!" << std::endl;
       CAF_LOG_TRACE("");
       delegate(broker_, atm, p);
       return {};
     },
     [=](spawn_atom atm, node_id& nid, std::string& str, message& msg,
         std::set<std::string>& ifs) -> delegated<strong_actor_ptr> {
+      std::cout << "[mm] spawn" << std::endl;
       CAF_LOG_TRACE("");
       delegate(
         broker_, forward_atom::value, nid, atom("SpawnServ"),
@@ -232,6 +235,7 @@ auto middleman_actor_impl::make_behavior() -> behavior_type {
     },
     [=](get_atom atm,
         node_id nid) -> delegated<node_id, std::string, uint16_t> {
+      std::cout << "[mm] get" << std::endl;
       CAF_LOG_TRACE("");
       delegate(broker_, atm, std::move(nid));
       return {};

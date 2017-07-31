@@ -65,6 +65,7 @@ basp_broker_state::~basp_broker_state() {
 }
 
 strong_actor_ptr basp_broker_state::make_proxy(node_id nid, actor_id aid) {
+  std::cout << "[bbs] creating a proxy" << std::endl;
   CAF_LOG_TRACE(CAF_ARG(nid) << CAF_ARG(aid));
   CAF_ASSERT(nid != this_node());
   if (nid == none || aid == invalid_actor_id)
@@ -106,10 +107,12 @@ strong_actor_ptr basp_broker_state::make_proxy(node_id nid, actor_id aid) {
   CAF_LOG_INFO("successfully created proxy instance, "
                "write announce_proxy_instance:"
                << CAF_ARG(nid) << CAF_ARG(aid));
+  auto& ctx = *this_context;
   // tell remote side we are monitoring this actor now
   instance.write_announce_proxy(self->context(),
                                 visit(wr_buf_vis, this_context->hdl),
-                                nid, aid);
+                                nid, aid,
+                                ctx.requires_ordering ? ctx.seq_outgoing++ : 0);
   instance.tbl().flush(*path);
   mm->notify<hook::new_remote_actor>(res);
   return res;
@@ -121,13 +124,13 @@ execution_unit* basp_broker_state::registry_context() {
 
 void basp_broker_state::finalize_handshake(const node_id& nid, actor_id aid,
                                            std::set<std::string>& sigs) {
-  std::cout << "[fh] for " << to_string(nid) << " + " << aid << std::endl;
+//  std::cout << "[fh] for " << to_string(nid) << " + " << aid << std::endl;
   CAF_LOG_TRACE(CAF_ARG(nid) << CAF_ARG(aid) << CAF_ARG(sigs));
   CAF_ASSERT(this_context != nullptr);
   this_context->id = nid;
   auto& cb = this_context->callback;
   if (!cb) {
-    std::cout << "[fh] No callback available" << std::endl;
+//    std::cout << "[fh] No callback available" << std::endl;
     return;
   }
   auto cleanup = detail::make_scope_guard([&] {
@@ -135,7 +138,7 @@ void basp_broker_state::finalize_handshake(const node_id& nid, actor_id aid,
   });
   strong_actor_ptr ptr;
   if (aid == invalid_actor_id) {
-    std::cout << "[fh] encountered invalid actor" << std::endl;
+//    std::cout << "[fh] encountered invalid actor" << std::endl;
     // can occur when connecting to the default port of a node
     cb->deliver(nid, ptr, std::move(sigs));
     return;
@@ -148,7 +151,7 @@ void basp_broker_state::finalize_handshake(const node_id& nid, actor_id aid,
     ptr = namespace_.get_or_put(nid, aid);
     CAF_LOG_ERROR_IF(!ptr, "creating actor in finalize_handshake failed");
   }
-  std::cout << "[fh] delivering callback" << std::endl;
+//  std::cout << "[fh] delivering callback" << std::endl;
   cb->deliver(make_message(nid, ptr, std::move(sigs)));
   this_context->callback = none;
 }
@@ -176,7 +179,7 @@ void basp_broker_state::proxy_announced(const node_id& nid, actor_id aid) {
       return;
     }
     instance.write_kill_proxy(self->context(), visit(wr_buf_vis, path->hdl),
-                                       nid, aid, rsn);
+                              nid, aid, rsn, visit(seq_num_vis, path->hdl));
     instance.tbl().flush(*path);
   };
   auto ptr = actor_cast<strong_actor_ptr>(entry);
@@ -291,6 +294,7 @@ void basp_broker_state::deliver(const node_id& src_nid, actor_id src_aid,
 }
 
 void basp_broker_state::learned_new_node(const node_id& nid) {
+  std::cout << "[bbs] learned new node" << std::endl;
   CAF_LOG_TRACE(CAF_ARG(nid));
   if (spawn_servers.count(nid) > 0) {
     CAF_LOG_ERROR("learned_new_node called for known node " << CAF_ARG(nid));
@@ -348,7 +352,8 @@ void basp_broker_state::learned_new_node(const node_id& nid) {
   // send message to SpawnServ of remote node
   basp::header hdr{basp::message_type::dispatch_message,
                    basp::header::named_receiver_flag,
-                   0, 0, this_node(), nid, tmp.id(), invalid_actor_id};
+                   0, 0, this_node(), nid, tmp.id(), invalid_actor_id,
+                   visit(seq_num_vis, path->hdl)};
   // writing std::numeric_limits<actor_id>::max() is a hack to get
   // this send-to-named-actor feature working with older CAF releases
   instance.write(self->context(), visit(wr_buf_vis, path->hdl), hdr, &writer);
@@ -374,6 +379,7 @@ const char* connection_helper_state::name = "connection_helper";
 } // namespace <anonymous>
 
 void basp_broker_state::learned_new_node_indirectly(const node_id& nid) {
+  std::cout << "[bbs] learned new node indirectly" << std::endl;
   CAF_ASSERT(this_context != nullptr);
   CAF_LOG_TRACE(CAF_ARG(nid));
   learned_new_node(nid);
@@ -449,7 +455,8 @@ void basp_broker_state::learned_new_node_indirectly(const node_id& nid) {
   });
   basp::header hdr{basp::message_type::dispatch_message,
                    basp::header::named_receiver_flag,
-                   0, 0, this_node(), nid, tmp.id(), invalid_actor_id};
+                   0, 0, this_node(), nid, tmp.id(), invalid_actor_id,
+                   visit(seq_num_vis, path->hdl)};
   instance.write(self->context(), visit(wr_buf_vis, path->hdl), hdr, &writer);
   instance.flush(*path);
 }
@@ -593,6 +600,7 @@ behavior basp_broker::make_behavior() {
   return {
     // received from underlying broker implementation
     [=](new_data_msg& msg) {
+//      std::cout << "[bb] new data" << std::endl;
       CAF_LOG_TRACE(CAF_ARG(msg.handle));
       state.set_context(msg.handle);
       auto& ctx = *state.this_context;
@@ -616,9 +624,10 @@ behavior basp_broker::make_behavior() {
     },
     // received from underlying broker implementation
     [=](new_datagram_msg& msg) {
-      std::cout << "[bb] received `new_datagram_msg` on port "
-                << local_port(msg.handle) << " from {"
-                << msg.handle.id() << "}" << std::endl;
+//      std::cout << "[bb] received `new_datagram_msg` on port "
+//                << local_port(msg.handle) << " from {"
+//                << msg.handle.id() << "}" << std::endl;
+//      std::cout << "[bb] new datagram" << std::endl;
       CAF_LOG_TRACE(CAF_ARG(msg.handle));
       state.set_context(msg.handle);
       auto& ctx = *state.this_context;
@@ -643,6 +652,7 @@ behavior basp_broker::make_behavior() {
     [=](forward_atom, strong_actor_ptr& src,
         const std::vector<strong_actor_ptr>& fwd_stack,
         strong_actor_ptr& dest, message_id mid, const message& msg) {
+      std::cout << "[bb] forward" << std::endl;
       CAF_LOG_TRACE(CAF_ARG(src) << CAF_ARG(dest)
                     << CAF_ARG(mid) << CAF_ARG(msg));
       if (!dest || system().node() == dest->node()) {
@@ -662,6 +672,7 @@ behavior basp_broker::make_behavior() {
     // received from some system calls like whereis
     [=](forward_atom, const node_id& dest_node, atom_value dest_name,
         const message& msg) -> result<message> {
+      std::cout << "[bb] forward" << std::endl;
       auto cme = current_mailbox_element();
       if (cme == nullptr)
         return sec::invalid_argument;
@@ -685,13 +696,15 @@ behavior basp_broker::make_behavior() {
       basp::header hdr{basp::message_type::dispatch_message,
                        basp::header::named_receiver_flag,
                        0, cme->mid.integer_value(), state.this_node(),
-                       dest_node, src->id(), invalid_actor_id};
+                       dest_node, src->id(), invalid_actor_id,
+                       visit(state.seq_num_vis, path->hdl)};
       state.instance.write(context(), visit(wr_buf_, path->hdl), hdr, &writer);
       state.instance.flush(*path);
       return delegated<message>();
     },
     // received from underlying broker implementation
     [=](const new_connection_msg& msg) {
+      std::cout << "[bb] new connection" << std::endl;
       CAF_LOG_TRACE(CAF_ARG(msg.handle));
       auto& bi = state.instance;
       bi.write_server_handshake(context(), wr_buf(msg.handle),
@@ -701,6 +714,7 @@ behavior basp_broker::make_behavior() {
     },
     // received from underlying broker implementation
     [=](const connection_closed_msg& msg) {
+      std::cout << "[bb] connection closed" << std::endl;
       CAF_LOG_TRACE(CAF_ARG(msg.handle));
       // TODO: currently we assume a node has gone offline once we lose
       //       a connection, we also could try to reach this node via other
@@ -729,6 +743,7 @@ behavior basp_broker::make_behavior() {
     },
     // received from underlying broker implementation
     [=](const acceptor_closed_msg& msg) {
+      std::cout << "[bb] acceptor closed" << std::endl;
       CAF_LOG_TRACE("");
       auto port = local_port(msg.handle);
       state.instance.remove_published_actor(port);
@@ -736,6 +751,7 @@ behavior basp_broker::make_behavior() {
     // received from middleman actor
     [=](publish_atom, doorman_ptr& ptr, uint16_t port,
         const strong_actor_ptr& whom, std::set<std::string>& sigs) {
+      std::cout << "[bb] publish tcp" << std::endl;
       CAF_LOG_TRACE(CAF_ARG(ptr) << CAF_ARG(port)
                     << CAF_ARG(whom) << CAF_ARG(sigs));
       CAF_ASSERT(ptr != nullptr);
@@ -746,6 +762,7 @@ behavior basp_broker::make_behavior() {
     },
     // received from middleman actor (delegated)
     [=](connect_atom, scribe_ptr& ptr, uint16_t port) {
+      std::cout << "[bb] connect" << std::endl;
       CAF_LOG_TRACE(CAF_ARG(ptr) << CAF_ARG(port));
       CAF_ASSERT(ptr != nullptr);
       auto rp = make_response_promise();
@@ -764,6 +781,7 @@ behavior basp_broker::make_behavior() {
         const strong_actor_ptr& whom, std::set<std::string>& sigs) {
 //      std::cout << "BASP broker received `publish_udp` atom for port "
 //                << port << std::endl;
+      std::cout << "[bb] publish udp" << std::endl;
       CAF_LOG_TRACE(CAF_ARG(ptr) << CAF_ARG(port)
                     << CAF_ARG(whom) << CAF_ARG(sigs));
       CAF_ASSERT(ptr != nullptr);
@@ -778,8 +796,7 @@ behavior basp_broker::make_behavior() {
       CAF_LOG_TRACE(CAF_ARG(ptr) << CAF_ARG(host) << CAF_ARG(port));
 //      std::cout << "BASP broker received `contact` atom for port "
 //                << port << std::endl;
-      std::cout << "[contact] using servant {" << ptr->hdl().id() << "}"
-                << std::endl;
+      std::cout << "[bb] contact" << std::endl;
       auto rp = make_response_promise();
       auto hdl = ptr->hdl();
       add_dgram_servant(ptr);
@@ -801,15 +818,18 @@ behavior basp_broker::make_behavior() {
     },
     // received from underlying broker implementation
     [=](const dgram_servant_closed_msg& msg) {
+      std::cout << "[bb] dgram servant closed" << std::endl;
       CAF_LOG_TRACE("");
       auto port = local_port(msg.handle);
       state.instance.remove_published_actor(port);
     },
     [=](delete_atom, const node_id& nid, actor_id aid) {
+      std::cout << "[bb] delete" << std::endl;
       CAF_LOG_TRACE(CAF_ARG(nid) << ", " << CAF_ARG(aid));
       state.proxies().erase(nid, aid);
     },
     [=](unpublish_atom, const actor_addr& whom, uint16_t port) -> result<void> {
+      std::cout << "[bb] unpublish" << std::endl;
       CAF_LOG_TRACE(CAF_ARG(whom) << CAF_ARG(port));
       auto cb = make_callback(
         [&](const strong_actor_ptr&, uint16_t x) -> error {
@@ -822,6 +842,7 @@ behavior basp_broker::make_behavior() {
       return unit;
     },
     [=](close_atom, uint16_t port) -> result<void> {
+      std::cout << "[bb] close" << std::endl;
       if (port == 0)
         return sec::cannot_close_invalid_port;
       // it is well-defined behavior to not have an actor published here,
@@ -834,6 +855,7 @@ behavior basp_broker::make_behavior() {
     },
     [=](get_atom, const node_id& x)
     -> std::tuple<node_id, std::string, uint16_t> {
+      std::cout << "[bb] get" << std::endl;
       std::string addr;
       uint16_t port = 0;
       auto hdl = state.instance.tbl().lookup_direct(x);
@@ -847,6 +869,14 @@ behavior basp_broker::make_behavior() {
       state.instance.handle_heartbeat(context());
       delayed_send(this, std::chrono::milliseconds{interval},
                    tick_atom::value, interval);
+    },
+    [=](pending_atom, dgram_handle hdl, uint16_t seq) {
+      auto& ep = state.ctx_udp[hdl];
+      auto itr = ep.pending.find(seq);
+      if (itr != ep.pending.end()) {
+        ep.seq_incoming = seq;
+        state.deliver_pending(context(), ep);
+      }
     }
   };
 }

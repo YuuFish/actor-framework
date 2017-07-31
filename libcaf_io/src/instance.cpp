@@ -300,18 +300,26 @@ bool instance::handle(execution_unit* ctx, new_datagram_msg& dm,
   /*
   std::cerr << "[<<] '" << to_string(ep.hdr.operation)
             << "' with seq '" << ep.hdr.sequence_number << "'" << std::endl;
-  if (ep.hdr.sequence_numer != ep.seq_incoming) {
+  if (ep.hdr.sequence_number != ep.seq_incoming) {
     std::cerr << "[!!] '" << to_string(ep.hdr.operation) << "' with seq '"
               << ep.hdr.sequence_number << "' (!= " << ep.seq_incoming
               << ")" << std::endl;
   }
   */
   if (ep.hdr.sequence_number > ep.seq_incoming) {
+    std::cout << "[h] sequence number to high for "
+              << to_string(ep.hdr.operation)
+              << " (" << ep.hdr.sequence_number << "/" << ep.seq_incoming << ")"
+              << std::endl;
     // Message arrived "early", add to pending messages
     auto s = ep.hdr.sequence_number;
     callee_.add_pending(s, ep, std::move(ep.hdr), std::move(pl_buf));
     return true;
   } else if (ep.hdr.sequence_number < ep.seq_incoming) {
+    std::cout << "[h] sequence number to low for "
+              << to_string(ep.hdr.operation)
+              << " (" << ep.hdr.sequence_number << "/" << ep.seq_incoming << ")"
+              << std::endl;
     // Message arrived late, drop it!
     CAF_LOG_DEBUG("dropping msg " << CAF_ARG(dm));
     return true;
@@ -331,7 +339,8 @@ void instance::handle_heartbeat(execution_unit* ctx) {
   CAF_LOG_TRACE("");
   for (auto& kvp: tbl_.direct_by_hdl_) {
     CAF_LOG_TRACE(CAF_ARG(kvp.first) << CAF_ARG(kvp.second));
-    write_heartbeat(ctx, visit(wr_buf_, kvp.first), kvp.second);
+    write_heartbeat(ctx, visit(wr_buf_, kvp.first), kvp.second,
+                    visit(seq_num_, kvp.first));
     visit(flush_, kvp.first);
   }
 }
@@ -435,7 +444,8 @@ bool instance::dispatch(execution_unit* ctx, const strong_actor_ptr& sender,
   });
   header hdr{message_type::dispatch_message, 0, 0, mid.integer_value(),
              sender ? sender->node() : this_node(), receiver->node(),
-             sender ? sender->id() : invalid_actor_id, receiver->id()};
+             sender ? sender->id() : invalid_actor_id, receiver->id(),
+             visit(seq_num_, path->hdl)};
   write(ctx, visit(wr_buf_, path->hdl), hdr, &writer);
   flush(*path);
   notify<hook::message_sent>(sender, path->next_hop, receiver, mid, msg);
@@ -456,8 +466,8 @@ void instance::write(execution_unit* ctx, buffer_type& buf,
     auto plen = buf.size() - pos - basp::header_size;
     CAF_ASSERT(plen <= std::numeric_limits<uint32_t>::max());
     hdr.payload_len = static_cast<uint32_t>(plen);
-    std::cout << "[w] writing " << (basp::header_size + plen)
-              << " bytes" << std::endl;
+//    std::cout << "[w] writing " << (basp::header_size + plen)
+//              << " bytes" << std::endl;
     stream_serializer<charbuf> out{ctx, buf.data() + pos, basp::header_size};
     err = out(hdr);
   } else {
@@ -472,7 +482,7 @@ void instance::write_server_handshake(execution_unit* ctx,
                                       buffer_type& out_buf,
                                       optional<uint16_t> port,
                                       uint16_t sequence_number) {
-  std::cout << "[wsh] for port " << to_string(port) << std::endl;
+//  std::cout << "[wsh] for port " << to_string(port) << std::endl;
   CAF_LOG_TRACE(CAF_ARG(port));
   using namespace detail;
   published_actor* pa = nullptr;

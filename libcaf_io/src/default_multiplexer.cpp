@@ -773,7 +773,7 @@ bool write_datagram(size_t& result, native_socket fd, void* buf, size_t buf_len,
     return false;
   }
   result = (sres > 0) ? static_cast<size_t>(sres) : 0;
-  std::cout << "[wd] sent " << result << " bytes." << std::endl;
+//  std::cout << "[wd] sent " << result << " bytes." << std::endl;
   return true;
 }
 
@@ -984,15 +984,15 @@ new_dgram_servant_with_handler(
       : dgram_servant(dgram_handle::from_int(id)),
         launched_(false),
         handler_ptr_(ptr) {
-      std::cout << "[nds] {" << id << "} is a new servant"  << std::endl;
+//      std::cout << "[nds] {" << id << "} is a new servant"  << std::endl;
       // nop
     }
     ~impl() {
-      std::cout << "[~] destructing {" << hdl().id() << "}" << std::endl;
+//      std::cout << "[~] destructing {" << hdl().id() << "}" << std::endl;
     }
     bool new_endpoint(ip_endpoint& ep, std::vector<char>& buf) override {
-      std::cout << "[ne] {" << hdl().id() << "} encountered new endpoint: "
-                << to_string(ep) << std::endl;
+//      std::cout << "[ne] {" << hdl().id() << "} encountered new endpoint: "
+//                << to_string(ep) << std::endl;
       CAF_LOG_TRACE("");
       if (detached())
          // we are already disconnected from the broker while the multiplexer
@@ -1018,8 +1018,8 @@ new_dgram_servant_with_handler(
       handler_ptr_->ack_writes(enable);
     }
     std::vector<char>& wr_buf() override {
-      std::cout << "[wb] {" << hdl().id() << "} is getting a new job"
-                << std::endl;
+//      std::cout << "[wb] {" << hdl().id() << "} is getting a new job"
+//                << std::endl;
       return handler_ptr_->wr_buf(hdl().id());
     }
     std::vector<char>& rd_buf() override {
@@ -1360,7 +1360,7 @@ dgram_handler::dgram_handler(default_multiplexer& backend_ref, native_socket soc
   rng.seed(std::random_device()());
   std::uniform_int_distribution<std::mt19937::result_type> dist(1000,10000);
   unique_id_ = dist(rng);
-  std::cout << " ### created <" << unique_id_ << "> ###" << std::endl;
+//  std::cout << " ### created <" << unique_id_ << "> ###" << std::endl;
   // nop
 }
 
@@ -1398,7 +1398,7 @@ void dgram_handler::write(id_type id, const void* buf, size_t num_bytes) {
 
 void dgram_handler::flush(id_type id, ip_endpoint& ep,
                           const manager_ptr& mgr) {
-  std::cout << "[f] {" << id << "} for " << to_string(ep) << std::endl;
+//  std::cout << "[f] {" << id << "} for " << to_string(ep) << std::endl;
   CAF_ASSERT(mgr != nullptr);
   CAF_LOG_TRACE(CAF_ARG(wr_offline_buf_.size()));
   if (!wr_offline_buf_.empty() && !writing_) {
@@ -1407,16 +1407,16 @@ void dgram_handler::flush(id_type id, ip_endpoint& ep,
     if (itr == from_id_.end() || !itr->second->writer ) {
       add_endpoint(id, ep, mgr);
       throw std::runtime_error("Looks like this does actually happen!");
-    } else {
+    } /* else {
       std::cout << "[f] writer still available." << std::endl;
-    }
+    } */
     writing_ = true;
     prepare_next_write();
-  } else {
+  } /*else {
     std::cout << "[f] !empty = " << std::boolalpha
               << !wr_offline_buf_.empty()
               << ", !writing = " << std::boolalpha << !writing_ << std::endl;
-  }
+  } */
 }
 
 // TODO: should this be a reference because we can't move endpoints?
@@ -1424,11 +1424,9 @@ void dgram_handler::add_endpoint(id_type id, ip_endpoint& ep,
                                  const manager_ptr mgr) {
   auto itr = from_ep_.find(ep);
   if (itr == from_ep_.end()) {
-    std::cout << "[ae] <" << unique_id_ << "> got new endpoint {"
-              << id << "} handles " << to_string(ep) << std::endl;
+//    std::cout << "[ae] <" << unique_id_ << "> got new endpoint {"
+//              << id << "} handles " << to_string(ep) << std::endl;
     auto data = make_counted<endpoint_data>(ep, mgr);
-    if (!data->writer)
-      std::cout << "[ae] with invalid writer!" << std::endl;
     from_ep_[ep] = data;
     from_id_[id] = data;
   } else if (!itr->second->writer) {
@@ -1443,7 +1441,7 @@ void dgram_handler::add_endpoint(id_type id, ip_endpoint& ep,
 }
 
 void dgram_handler::remove_endpoint(id_type id) {
-  std::cout << "[re] removing {" << id << "}" << std::endl;
+//  std::cout << "[re] removing {" << id << "}" << std::endl;
   CAF_LOG_TRACE(CAF_ARG(id));
   auto itr = from_id_.find(id);
   if (itr != from_id_.end()) {
@@ -1462,8 +1460,8 @@ void dgram_handler::removed_from_loop(operation op) {
   switch (op) {
     case operation::read: reader_.reset(); break;
     case operation::write:
-      std::cout << "[rfl] <" << unique_id_ << "> Resetting writers" << std::endl;
-      std::cout << "[rfl] IGNORED" << std::endl;
+//      std::cout << "[rfl] <" << unique_id_ << "> Resetting writers" << std::endl;
+//      std::cout << "[rfl] IGNORED" << std::endl;
       // TODO: maybe save readers and writers separately
       // or change how the related state is handled ... or something
 //      from_ep_.clear();
@@ -1490,16 +1488,16 @@ void dgram_handler::prepare_next_write() {
   CAF_LOG_TRACE(CAF_ARG(wr_offline_buf_.size()));
   wr_buf_.second.clear();
   if (wr_offline_buf_.empty()) {
-    std::cout << "[pnw] got nothing to write" << std::endl;
+//    std::cout << "[pnw] got nothing to write" << std::endl;
     writing_ = false;
     backend().del(operation::write, fd(), this);
   } else {
-    std::cout << "[pnw] writing next of " << wr_offline_buf_.size()
-              << " jobs" << std::endl;
+//    std::cout << "[pnw] writing next of " << wr_offline_buf_.size()
+//              << " jobs" << std::endl;
     wr_buf_.swap(wr_offline_buf_.front());
     wr_offline_buf_.pop_front();
-    std::cout << "[pnw] {" << wr_buf_.first << "} will write "
-              << wr_buf_.second.size() << " bytes" << std::endl;
+//    std::cout << "[pnw] {" << wr_buf_.first << "} will write "
+//              << wr_buf_.second.size() << " bytes" << std::endl;
   }
 }
 

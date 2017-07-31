@@ -772,8 +772,8 @@ public:
 protected:
   template <class Policy>
   void handle_event_impl(io::network::operation op, Policy& policy) {
-    std::cout << "[hd] <" << unique_id_ << "> processing " << to_string(op)
-              << " event" << std::endl;
+//    std::cout << "[hd] <" << unique_id_ << "> processing " << to_string(op)
+//              << " event" << std::endl;
     CAF_LOG_TRACE(CAF_ARG(op));
     auto mcr = max_consecutive_reads();
     switch (op) {
@@ -826,18 +826,17 @@ protected:
       }
       case io::network::operation::write: {
         size_t wb; // written bytes
-        std::cout << "[he] looking for handler {" << wr_buf_.first
-                  << "} to write " << wr_buf_.second.size() << " bytes"
-                  << std::endl;
+//        std::cout << "[he] looking for handler {" << wr_buf_.first
+//                  << "} to write " << wr_buf_.second.size() << " bytes"
+//                  << std::endl;
         auto itr = from_id_.find(wr_buf_.first);
         if (itr == from_id_.end()) {
           // handle_error
-          std::cout << "[he] unknown servant {" << wr_buf_.first << "}, got: "
+          std::cout << "[he] unknown servant {" << wr_buf_.first << "}"
                     << std::endl;
-          for  (auto& ep : from_id_) {
-            std::cout << " > {" << ep.first << "}  for "
-                      << to_string(ep.second->endpoint) << std::endl;
-          }
+//          for  (auto& ep : from_id_)
+//            std::cout << " > {" << ep.first << "}  for "
+//                      << to_string(ep.second->endpoint) << std::endl;
           abort();
           return;
         }
