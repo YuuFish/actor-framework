@@ -52,6 +52,7 @@ size_t proxy_registry::count_proxies(const node_id& node) {
 }
 
 strong_actor_ptr proxy_registry::get(const node_id& node, actor_id aid) {
+  std::cout << "[pr] get " << to_string(node) << " + " << aid << std::endl;
   auto& submap = proxies_[node];
   auto i = submap.find(aid);
   if (i != submap.end())
@@ -60,6 +61,9 @@ strong_actor_ptr proxy_registry::get(const node_id& node, actor_id aid) {
 }
 
 strong_actor_ptr proxy_registry::get_or_put(const node_id& nid, actor_id aid) {
+  std::cout << "[pr] get / put "
+            << (system().node() == nid ? "local:" : "remote:")
+            << aid << std::endl;
   CAF_LOG_TRACE(CAF_ARG(nid) << CAF_ARG(aid));
   auto& result = proxies_[nid][aid];
   if (!result)
@@ -81,6 +85,7 @@ bool proxy_registry::empty() const {
 }
 
 void proxy_registry::erase(const node_id& nid) {
+  std::cout << "[pr] erasing " << to_string(nid) << std::endl;
   CAF_LOG_TRACE(CAF_ARG(nid));
   auto i = proxies_.find(nid);
   if (i == proxies_.end())
@@ -91,6 +96,8 @@ void proxy_registry::erase(const node_id& nid) {
 }
 
 void proxy_registry::erase(const node_id& nid, actor_id aid, error rsn) {
+  std::cout << "[pr] erasing " << to_string(nid) << " + " << aid << " because "
+            << to_string(rsn) << std::endl;
   CAF_LOG_TRACE(CAF_ARG(nid) << CAF_ARG(aid));
   auto i = proxies_.find(nid);
   if (i != proxies_.end()) {

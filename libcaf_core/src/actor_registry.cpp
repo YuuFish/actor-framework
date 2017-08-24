@@ -83,6 +83,7 @@ void actor_registry::put(actor_id key, strong_actor_ptr val) {
 }
 
 void actor_registry::erase(actor_id key) {
+  std::cout << "[ar] erasing " << key << std::endl;
   exclusive_guard guard{instances_mtx_};
   entries_.erase(key);
 }
