@@ -249,6 +249,7 @@ public:
               std::vector<char>* payload, bool tcp_based,
               optional<endpoint_context&> ep, optional<uint16_t> port) {
     std::cout << "[h] " << to_string(hdr.operation) << std::endl;
+    // function object for checking payload validity
     auto payload_valid = [&]() -> bool {
       return payload != nullptr && payload->size() == hdr.payload_len;
     };
@@ -307,46 +308,66 @@ public:
         break;
       }
       case message_type::client_handshake: {
-        auto is_known_node = tbl_.lookup_direct(hdr.source_node);
-        if (is_known_node && tcp_based) {
-          CAF_LOG_INFO("received second client handshake:"
-                       << CAF_ARG(hdr.source_node));
-          break;
-        }
-        if (payload_valid()) {
-          binary_deserializer bd{ctx, *payload};
-          std::string remote_appid;
-          auto e = bd(remote_appid);
-          if (e)
-            return false;
-          if (remote_appid != callee_.system().config().middleman_app_identifier) {
-            CAF_LOG_ERROR("app identifier mismatch");
+        if (tcp_based) {
+          if (tbl_.lookup_direct(hdr.source_node)) {
+            CAF_LOG_INFO("received second client handshake:"
+                         << CAF_ARG(hdr.source_node));
+            break;
+          }
+          if (payload_valid()) {
+            binary_deserializer bd{ctx, *payload};
+            std::string remote_appid;
+            auto e = bd(remote_appid);
+            if (e)
+              return false;
+            if (remote_appid != callee_.system().config().middleman_app_identifier) {
+              CAF_LOG_ERROR("app identifier mismatch");
+              return false;
+            }
+          } else {
+            CAF_LOG_ERROR("fail to receive the app identifier");
             return false;
           }
-        } else {
-          CAF_LOG_ERROR("fail to receive the app identifier");
-          return false;
-        }
-        // TODO: think this should be here, but maybe ...
-        auto is_differnt_node = (this_node() != hdr.source_node);
-        if (!is_known_node && is_differnt_node) {
           // add direct route to this node and remove any indirect entry
           CAF_LOG_INFO("new direct connection:" << CAF_ARG(hdr.source_node));
-          //auto was_indirect = tbl_.erase_indirect(hdr.source_node);
-          //callee_.learned_new_node_directly(hdr.source_node, was_indirect);
           tbl_.add_direct(hdl, hdr.source_node);
-        }
-        if (!tcp_based) {
+          auto was_indirect = tbl_.erase_indirect(hdr.source_node);
+          callee_.learned_new_node_directly(hdr.source_node, was_indirect);
+          break;
+        } else {
+          if (payload_valid()) {
+            binary_deserializer bd{ctx, *payload};
+            std::string remote_appid;
+            auto e = bd(remote_appid);
+            if (e)
+              return false;
+            if (remote_appid != callee_.system().config().middleman_app_identifier) {
+              CAF_LOG_ERROR("app identifier mismatch");
+              return false;
+            }
+          } else {
+            CAF_LOG_ERROR("fail to receive the app identifier");
+            return false;
+          }
+          auto new_node = (this_node() != hdr.source_node
+                          && !tbl_.lookup_direct(hdr.source_node));
+          if (new_node) {
+            // add direct route to this node and remove any indirect entry
+            CAF_LOG_INFO("new direct connection:" << CAF_ARG(hdr.source_node));
+            //auto was_indirect = tbl_.erase_indirect(hdr.source_node);
+            //callee_.learned_new_node_directly(hdr.source_node, was_indirect);
+            tbl_.add_direct(hdl, hdr.source_node);
+          }
           auto seq = (ep && ep->requires_ordering) ? ep->seq_outgoing++ : 0;
           // TODO: clean this up, visitors are a hack to access abstract broker
           write_server_handshake(ctx, wr_buf_(hdl), port, seq);
           wr_buf_.ptr_->flush(hdl);
+          if (new_node) {
+            auto was_indirect = tbl_.erase_indirect(hdr.source_node);
+            callee_.learned_new_node_directly(hdr.source_node, was_indirect);
+          }
+          break;
         }
-        if (!is_known_node && is_differnt_node) {
-          auto was_indirect = tbl_.erase_indirect(hdr.source_node);
-          callee_.learned_new_node_directly(hdr.source_node, was_indirect);
-        }
-        break;
       }
       case message_type::dispatch_message: {
         if (!payload_valid())
@@ -357,7 +378,7 @@ public:
         if (hdr.source_node != none
             && hdr.source_node != this_node_
             && last_hop != hdr.source_node
-            && tbl_.lookup_direct(hdr.source_node)
+            && !tbl_.lookup_direct(hdr.source_node)
             && tbl_.add_indirect(last_hop, hdr.source_node))
           callee_.learned_new_node_indirectly(hdr.source_node);
         binary_deserializer bd{ctx, *payload};
@@ -394,7 +415,8 @@ public:
         auto e = bd(fail_state);
         if (e)
           return false;
-        callee_.kill_proxy(hdr.source_node, hdr.source_actor, fail_state);
+        callee_.proxies().erase(hdr.source_node, hdr.source_actor,
+                                std::move(fail_state));
         break;
       }
       case message_type::heartbeat: {

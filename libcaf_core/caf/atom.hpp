@@ -174,6 +174,9 @@ using migrate_atom = atom_constant<atom("migrate")>;
 /// Used for triggering periodic operations.
 using tick_atom = atom_constant<atom("tick")>;
 
+/// Used for pending out of order messages.
+using pending_atom = atom_constant<atom("pending")>;
+
 } // namespace caf
 
 namespace std {

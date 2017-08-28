@@ -131,6 +131,16 @@ struct basp_broker_state : proxy_registry::backend, basp::instance::callee {
     }
     basp_broker_state* state;
   };
+  struct close_visitor {
+    using result_type = void;
+    close_visitor(broker* b) : b{b} { }
+    template <class T>
+    result_type operator()(const T& hdl) {
+      b->close(hdl);
+    }
+    broker* b;
+  };
+  close_visitor close_vis;
   wr_buf_visitor wr_buf_vis;
   purge_visitor purge_state_vis;
   sequence_number_visitor seq_num_vis;
@@ -141,9 +151,12 @@ struct basp_broker_state : proxy_registry::backend, basp::instance::callee {
   // protocol instance of BASP
   basp::instance instance;
 
+  using ctx_tcp_map = std::unordered_map<connection_handle, endpoint_context>;
+  using ctx_udp_map = std::unordered_map<dgram_handle, endpoint_context>;
+
   // keeps context information for all open connections
-  std::unordered_map<connection_handle, endpoint_context> ctx_tcp;
-  std::unordered_map<dgram_handle, endpoint_context> ctx_udp;
+  ctx_tcp_map ctx_tcp;
+  ctx_udp_map ctx_udp;
 
   // points to the current context for callbacks such as `make_proxy`
   endpoint_context* this_context = nullptr;

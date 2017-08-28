@@ -363,15 +363,15 @@ public:
 
     template <class... Ts>
     mock_t& receive(connection_handle hdl,
-                   maybe<basp::message_type> operation,
-                   maybe<uint8_t> flags,
-                   maybe<uint32_t> payload_len,
-                   maybe<uint64_t> operation_data,
-                   maybe<node_id> source_node,
-                   maybe<node_id> dest_node,
-                   maybe<actor_id> source_actor,
-                   maybe<actor_id> dest_actor,
-                   const Ts&... xs) {
+                    maybe<basp::message_type> operation,
+                    maybe<uint8_t> flags,
+                    maybe<uint32_t> payload_len,
+                    maybe<uint64_t> operation_data,
+                    maybe<node_id> source_node,
+                    maybe<node_id> dest_node,
+                    maybe<actor_id> source_actor,
+                    maybe<actor_id> dest_actor,
+                    const Ts&... xs) {
       CAF_MESSAGE("expect #" << num);
       buffer buf;
       this_->to_payload(buf, xs...);
@@ -745,18 +745,18 @@ CAF_TEST(indirect_connections) {
   CAF_MESSAGE("expect ('sys', 'get', \"info\") from Earth to Jupiter at Mars");
   // this asks Jupiter if it has a 'SpawnServ'
   mx.receive(mars().connection,
-            basp::message_type::dispatch_message,
-            basp::header::named_receiver_flag, any_vals,
-            no_operation_data, this_node(), jupiter().id,
-            any_vals, invalid_actor_id,
-            spawn_serv_atom,
-            std::vector<actor_id>{},
-            make_message(sys_atom::value, get_atom::value, "info"));
+             basp::message_type::dispatch_message,
+             basp::header::named_receiver_flag, any_vals,
+             no_operation_data, this_node(), jupiter().id,
+             any_vals, invalid_actor_id,
+             spawn_serv_atom,
+             std::vector<actor_id>{},
+             make_message(sys_atom::value, get_atom::value, "info"));
   CAF_MESSAGE("expect announce_proxy message at Mars from Earth to Jupiter");
   mx.receive(mars().connection,
-            basp::message_type::announce_proxy, no_flags, no_payload,
-            no_operation_data, this_node(), jupiter().id,
-            invalid_actor_id, jupiter().dummy_actor->id());
+             basp::message_type::announce_proxy, no_flags, no_payload,
+             no_operation_data, this_node(), jupiter().id,
+             invalid_actor_id, jupiter().dummy_actor->id());
   CAF_MESSAGE("receive message from jupiter");
   self()->receive(
     [](const std::string& str) -> std::string {
@@ -767,11 +767,11 @@ CAF_TEST(indirect_connections) {
   mpx()->exec_runnable(); // process forwarded message in basp_broker
   mock()
   .receive(mars().connection,
-          basp::message_type::dispatch_message, no_flags, any_vals,
-          no_operation_data, this_node(), jupiter().id,
-          self()->id(), jupiter().dummy_actor->id(),
-          std::vector<actor_id>{},
-          make_message("hello from earth!"));
+           basp::message_type::dispatch_message, no_flags, any_vals,
+           no_operation_data, this_node(), jupiter().id,
+           self()->id(), jupiter().dummy_actor->id(),
+           std::vector<actor_id>{},
+           make_message("hello from earth!"));
 }
 
 CAF_TEST_FIXTURE_SCOPE_END()
@@ -789,7 +789,8 @@ CAF_TEST(automatic_connection) {
   auto check_node_in_tbl = [&](node& n) {
     io::id_visitor id_vis;
     auto hdl = tbl().lookup_direct(n.id);
-    CAF_CHECK_EQUAL(hdl && visit(id_vis, *hdl), n.connection.id());
+    CAF_REQUIRE(hdl);
+    CAF_CHECK_EQUAL(visit(id_vis, *hdl), n.connection.id());
   };
   mpx()->provide_scribe("jupiter", 8080, jupiter().connection);
   CAF_CHECK(mpx()->has_pending_scribe("jupiter", 8080));

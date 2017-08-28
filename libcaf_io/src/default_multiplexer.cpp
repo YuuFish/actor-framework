@@ -945,7 +945,7 @@ void default_multiplexer::exec_later(resumable* ptr) {
 
 scribe_ptr default_multiplexer::new_scribe(native_socket fd) {
   CAF_LOG_TRACE("");
-  return make_counted<scribe_impl>(*this, fd);
+  return make_counted<scribe_impl>(*this, fd, next_endpoint_id());
 }
 
 expected<scribe_ptr>
@@ -959,7 +959,7 @@ default_multiplexer::new_tcp_scribe(const std::string& host, uint16_t port) {
 doorman_ptr default_multiplexer::new_doorman(native_socket fd) {
   CAF_LOG_TRACE(CAF_ARG(fd));
   CAF_ASSERT(fd != network::invalid_native_socket);
-  return make_counted<doorman_impl>(*this, fd);
+  return make_counted<doorman_impl>(*this, fd, next_endpoint_id());
 }
 
 expected<doorman_ptr> default_multiplexer::new_tcp_doorman(uint16_t port,
@@ -1835,9 +1835,10 @@ expected<uint16_t> remote_port_of_fd(native_socket fd) {
 }
 
 // -- default doorman and scribe implementations -------------------------------
-  
-doorman_impl::doorman_impl(default_multiplexer& mx, native_socket sockfd)
-    : doorman(network::accept_hdl_from_socket(sockfd)),
+
+doorman_impl::doorman_impl(default_multiplexer& mx, native_socket sockfd,
+                           int64_t id)
+    : doorman(accept_handle::from_int(id)),
       acceptor_(mx, sockfd) {
   // nop
 }
@@ -1890,8 +1891,9 @@ void doorman_impl::remove_from_loop() {
   acceptor_.passivate();
 }
 
-scribe_impl::scribe_impl(default_multiplexer& mx, native_socket sockfd)
-    : scribe(network::conn_hdl_from_socket(sockfd)),
+scribe_impl::scribe_impl(default_multiplexer& mx, native_socket sockfd,
+                         int64_t id)
+    : scribe(connection_handle::from_int(id)),
       launched_(false),
       stream_(mx, sockfd) {
   // nop

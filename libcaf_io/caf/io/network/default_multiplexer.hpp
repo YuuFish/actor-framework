@@ -934,7 +934,7 @@ expected<native_socket> new_tcp_acceptor_impl(uint16_t port, const char* addr,
 /// Default doorman implementation.
 class doorman_impl : public doorman {
 public:
-  doorman_impl(default_multiplexer& mx, native_socket sockfd);
+  doorman_impl(default_multiplexer& mx, native_socket sockfd, int64_t id);
 
   bool new_connection() override;
 
@@ -957,7 +957,7 @@ protected:
 /// Default scribe implementation.
 class scribe_impl : public scribe {
 public:
-  scribe_impl(default_multiplexer& mx, native_socket sockfd);
+  scribe_impl(default_multiplexer& mx, native_socket sockfd, int64_t id);
 
   void configure_read(receive_policy::config config) override;
 

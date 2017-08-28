@@ -50,6 +50,7 @@ const char* basp_broker_state::name = "basp_broker";
 basp_broker_state::basp_broker_state(broker* selfptr)
     : basp::instance::callee(selfptr->system(),
                              static_cast<proxy_registry::backend&>(*this)),
+      close_vis(selfptr),
       wr_buf_vis(selfptr),
       purge_state_vis(this),
       seq_num_vis(this),
@@ -162,7 +163,9 @@ void basp_broker_state::purge_state(const node_id& nid) {
   if (!hdl)
     return;
   visit(purge_state_vis, *hdl);
-  proxies().erase(nid);
+  //proxies().erase(nid);
+  //self->close(*hdl); // TODO: ensure this works
+  visit(close_vis, *hdl);
 }
 
 void basp_broker_state::proxy_announced(const node_id& nid, actor_id aid) {
@@ -239,7 +242,7 @@ void basp_broker_state::deliver(const node_id& src_nid, actor_id src_aid,
         break;
       case link_atom::value.uint_value(): {
         if (src_nid != this_node()) {
-          CAF_LOG_WARNING("received link message for an other node");
+          CAF_LOG_WARNING("received link message for another node");
           return;
         }
         auto ptr = msg.get_as<strong_actor_ptr>(1);
@@ -289,7 +292,7 @@ void basp_broker_state::deliver(const node_id& src_nid, actor_id src_aid,
   }
   self->parent().notify<hook::message_received>(src_nid, src, dest, mid, msg);
   dest->enqueue(make_mailbox_element(std::move(src), mid, std::move(stages),
-                                      std::move(msg)),
+                                     std::move(msg)),
                 nullptr);
 }
 
@@ -323,8 +326,8 @@ void basp_broker_state::learned_new_node(const node_id& nid) {
           -> delegated<strong_actor_ptr, std::set<std::string>> {
             CAF_LOG_TRACE(CAF_ARG(type) << CAF_ARG(args));
             tself->delegate(actor_cast<actor>(std::move(config_serv)),
-                                 get_atom::value, std::move(type),
-                                 std::move(args));
+                            get_atom::value, std::move(type),
+                            std::move(args));
             return {};
           }
         );
@@ -410,6 +413,7 @@ void basp_broker_state::learned_new_node_indirectly(const node_id& nid) {
             for (auto& kvp : addresses)
               if (kvp.first != network::protocol::ethernet)
                 for (auto& addr : kvp.second) {
+                // TODO: might not always be TCP
                 auto hdl = mx.new_tcp_scribe(addr, port);
                 if (hdl) {
                   // gotcha! send scribe to our BASP broker
@@ -478,7 +482,7 @@ void basp_broker_state::purge(dgram_handle h) {
   if (i != ctx_udp.end()) {
     auto& ref = i->second;
     if (ref.callback) {
-      CAF_LOG_DEBUG("connection closed during handshake");
+      CAF_LOG_DEBUG("communication ended during handshake");
       ref.callback->deliver(sec::disconnect_during_handshake);
     }
     ctx_udp.erase(i);
@@ -537,7 +541,8 @@ uint16_t basp_broker_state::next_sequence_number(dgram_handle hdl) {
 }
 
 void basp_broker_state::add_pending(uint16_t seq, endpoint_context& ep,
-                           basp::header hdr, std::vector<char> payload) {
+                                    basp::header hdr,
+                                    std::vector<char> payload) {
   ep.pending.emplace(seq, std::make_pair(std::move(hdr), std::move(payload)));
   // TODO: choose reasonable default timeout, make configurable
   self->delayed_send(self, std::chrono::milliseconds(500), pending_atom::value,
@@ -591,6 +596,7 @@ behavior basp_broker::make_behavior() {
            make_message(port, std::move(addrs)));
       state.enable_automatic_connections = true;
     }
+    // TODO: Allow default connections for UDP
   }
   auto heartbeat_interval = system().config().middleman_heartbeat_interval;
   if (heartbeat_interval > 0) {
@@ -641,9 +647,9 @@ behavior basp_broker::make_behavior() {
                           << CAF_ARG(msg.handle));
           ctx.callback->deliver(make_error(sec::disconnect_during_handshake));
         }
-//        close(msg.handle);
-        remove_endpoint(msg.handle);
-        state.ctx_udp.erase(msg.handle);
+        close(msg.handle);
+        //remove_endpoint(msg.handle);
+        //state.ctx_udp.erase(msg.handle);
       } else {
         configure_datagram_size(msg.handle, 1500);
       }
@@ -663,7 +669,7 @@ behavior basp_broker::make_behavior() {
       if (src && system().node() == src->node())
         system().registry().put(src->id(), src);
       if (!state.instance.dispatch(context(), src, fwd_stack,
-                                    dest, mid, msg)
+                                   dest, mid, msg)
           && mid.is_request()) {
         detail::sync_request_bouncer srb{exit_reason::remote_link_unreachable};
         srb(src, mid);
@@ -726,18 +732,21 @@ behavior basp_broker::make_behavior() {
         state.instance.handle_node_shutdown(nid);
       } else {
         // check whether the connection failed during handshake
-        auto pred = [&](const basp_broker_state::ctx_map::value_type& x) {
-          return x.second.hdl == msg.handle;
+        auto pred = [&](const basp_broker_state::ctx_tcp_map::value_type& x) {
+          // return x.second.hdl == msg.handle;
+          // TODO: why not use the first? Otherwise I need a visitor to extract
+          // the right handle, or is thix covered by variant?
+          return x.first == msg.handle;
         };
-        auto e = state.ctx.end();
-        auto i = std::find_if(state.ctx.begin(), e, pred);
+        auto e = state.ctx_tcp.end();
+        auto i = std::find_if(state.ctx_tcp.begin(), e, pred);
         if (i != e) {
           auto& ref = i->second;
           if (ref.callback) {
             CAF_LOG_DEBUG("connection closed during handshake");
             ref.callback->deliver(sec::disconnect_during_handshake);
           }
-          state.ctx.erase(i);
+          state.ctx_tcp.erase(i);
         }
       }
     },
@@ -833,6 +842,7 @@ behavior basp_broker::make_behavior() {
       CAF_LOG_TRACE(CAF_ARG(whom) << CAF_ARG(port));
       auto cb = make_callback(
         [&](const strong_actor_ptr&, uint16_t x) -> error {
+          std::cout << "[ua] callback called with " << x << std::endl;
           close(hdl_by_port(x));
           return none;
         }

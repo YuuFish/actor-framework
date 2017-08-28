@@ -400,6 +400,7 @@ size_t instance::remove_published_actor(uint16_t port,
 size_t instance::remove_published_actor(const actor_addr& whom,
                                         uint16_t port,
                                         removed_published_actor* cb) {
+  std::cout << "[rpa] on port " << port << std::endl;
   CAF_LOG_TRACE(CAF_ARG(whom) << CAF_ARG(port));
   size_t result = 0;
   if (port != 0) {
