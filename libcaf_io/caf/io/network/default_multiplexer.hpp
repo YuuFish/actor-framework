@@ -1041,7 +1041,7 @@ private:
   // TODO: endpoint might be copied rather often ... needs more efficient
   //       handling, maybe keep it on the heap and use a shared pointer
   ip_endpoint ep_;
-  std::shared_ptr<handler_type>  handler_ptr_;
+  std::shared_ptr<handler_type> handler_ptr_;
 };
 
 expected<std::pair<native_socket, ip_endpoint>>

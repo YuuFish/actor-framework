@@ -802,7 +802,7 @@ behavior basp_broker::make_behavior() {
     },
     // received from middleman actor (delegated)
     [=](contact_atom, dgram_servant_ptr& ptr, uint16_t port) {
-      CAF_LOG_TRACE(CAF_ARG(ptr) << CAF_ARG(host) << CAF_ARG(port));
+      CAF_LOG_TRACE(CAF_ARG(ptr) << CAF_ARG(port));
 //      std::cout << "BASP broker received `contact` atom for port "
 //                << port << std::endl;
       std::cout << "[bb] contact" << std::endl;

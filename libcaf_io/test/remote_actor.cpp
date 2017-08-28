@@ -186,24 +186,16 @@ CAF_TEST(remote_link_tcp) {
 CAF_TEST(identity_semantics_udp) {
   // server side
   auto server = server_side.spawn(make_pong_behavior);
-//  CAF_MESSAGE("publishing two servers");
   CAF_EXP_THROW(port1, server_side_mm.publish_udp(server, 0, local_host));
   CAF_EXP_THROW(port2, server_side_mm.publish_udp(server, 0, local_host));
-//  CAF_MESSAGE("comparing their ports");
   CAF_REQUIRE_NOT_EQUAL(port1, port2);
-//  CAF_MESSAGE("acquiring remote actor");
   CAF_EXP_THROW(same_server, server_side_mm.remote_actor_udp(local_host, port2));
-//  CAF_MESSAGE("comparing acquired actors");
   CAF_REQUIRE_EQUAL(same_server, server);
-//  CAF_MESSAGE("comparing their nodes");
   CAF_CHECK_EQUAL(same_server->node(), server_side.node());
-//  CAF_MESSAGE("getting remote actors (from different node)");
   CAF_EXP_THROW(server1, client_side_mm.remote_actor_udp(local_host, port1));
   CAF_EXP_THROW(server2, client_side_mm.remote_actor_udp(local_host, port2));
-//  CAF_MESSAGE("and again");
   CAF_CHECK_EQUAL(server1, client_side_mm.remote_actor_udp(local_host, port1));
   CAF_CHECK_EQUAL(server2, client_side_mm.remote_actor_udp(local_host, port2));
-  CAF_MESSAGE("killing them");
   anon_send_exit(server, exit_reason::user_shutdown);
 }
 

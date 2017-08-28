@@ -308,6 +308,10 @@ void abstract_broker::close_all() {
     // stop_reading will remove the scribe from scribes_
     scribes_.begin()->second->stop_reading();
   }
+  while (!dgram_servants_.empty()) {
+    // stop reading will remove dgram servants from dgram_servants_
+    dgram_servants_.begin()->second->stop_reading();
+  }
 }
 
 resumable::subtype_t abstract_broker::subtype() const {
