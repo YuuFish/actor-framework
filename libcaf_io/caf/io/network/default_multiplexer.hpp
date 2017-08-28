@@ -35,6 +35,7 @@
 #include "caf/io/doorman.hpp"
 #include "caf/io/dgram_handle.hpp"
 #include "caf/io/accept_handle.hpp"
+#include "caf/io/dgram_servant.hpp"
 #include "caf/io/receive_policy.hpp"
 #include "caf/io/connection_handle.hpp"
 #include "caf/io/network/operation.hpp"
@@ -209,7 +210,7 @@ struct tcp_policy {
   static write_some_fun write_some;
   static try_accept_fun try_accept;
 };
-//
+
 /// Write a datagram containing `buf_len` bytes to `fd` addressed
 /// at the endpoint in `sa` with size `sa_len`. Returns true as long
 /// as no IO error occurs. The number of written bytes is stored in
@@ -223,6 +224,18 @@ bool read_datagram(size_t& result, native_socket fd, void* buf, size_t buf_len,
 /// received bytes is stored in `result` (can be 0).
 bool write_datagram(size_t& result, native_socket fd, void* buf, size_t buf_len,
                     ip_endpoint& ep);
+
+/// Function signature of read_datagram
+using read_datagram_fun = decltype(read_datagram)*;
+
+/// Function signature of write_datagram
+using write_datagram_fun = decltype(write_datagram)*;
+
+/// Policy object for wrapping default UDP operations
+struct udp_policy {
+  static read_datagram_fun read_datagram;
+  static write_datagram_fun write_datagram;
+};
 
 /// Returns the locally assigned port of `fd`.
 expected<uint16_t> local_port_of_fd(native_socket fd);
@@ -762,11 +775,11 @@ public:
   /// Closes the read channel of the underlying socket and removes
   /// this handler from its parent.
   void stop_reading();
-  
+
   void removed_from_loop(operation op) override;
 
   void add_endpoint(id_type id, ip_endpoint& ep, const manager_ptr mgr);
-  
+
   void remove_endpoint(id_type id);
 
 protected:
@@ -897,7 +910,7 @@ private:
   bool writing_;
   std::deque<job_type> wr_offline_buf_;
   job_type wr_buf_;
-  
+
   // debugging
   uint32_t unique_id_;
 };
@@ -984,6 +997,51 @@ public:
 protected:
   bool launched_;
   stream_impl<tcp_policy> stream_;
+};
+
+/// Default datagram servant implementation
+class dgram_servant_impl : public dgram_servant {
+  using handler_type = dgram_handler_impl<udp_policy>;
+
+public:
+  dgram_servant_impl(std::shared_ptr<handler_type> ptr, int64_t id);
+
+  bool new_endpoint(ip_endpoint& ep, std::vector<char>& buf) override;
+
+  void configure_datagram_size(size_t buf_size) override;
+
+  void ack_writes(bool enable) override;
+
+  std::vector<char>& wr_buf() override;
+
+  std::vector<char>& rd_buf() override;
+
+  void stop_reading() override;
+
+  void flush() override;
+
+  std::string addr() const override;
+
+  uint16_t port() const override;
+
+  uint16_t local_port() const override;
+
+  void add_endpoint(ip_endpoint& ep) override;
+
+  void remove_endpoint() override;
+
+  void launch() override;
+
+  void add_to_loop() override;
+
+  void remove_from_loop() override;
+
+private:
+  bool launched_;
+  // TODO: endpoint might be copied rather often ... needs more efficient
+  //       handling, maybe keep it on the heap and use a shared pointer
+  ip_endpoint ep_;
+  std::shared_ptr<handler_type>  handler_ptr_;
 };
 
 expected<std::pair<native_socket, ip_endpoint>>

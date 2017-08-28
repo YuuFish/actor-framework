@@ -474,7 +474,7 @@ namespace network {
         presult = ::poll(pollset_.data(),
                          static_cast<nfds_t>(pollset_.size()), block ? -1 : 0);
 #     endif
-      CAF_LOG_DEBUG("poll() on" << pollset_.size() 
+      CAF_LOG_DEBUG("poll() on" << pollset_.size()
                     << "sockets reported" << presult << "event(s)");
       if (presult < 0) {
         switch (last_socket_error()) {
@@ -787,20 +787,9 @@ try_accept_fun tcp_policy::try_accept = network::try_accept;
 
 // -- Policy class for UDP wrappign above free functions -----------------------
 
-namespace {
-
-using read_datagram_fun = decltype(read_datagram)*;
-using write_datagram_fun = decltype(write_datagram)*;
-
-struct udp_policy {
-  static read_datagram_fun read_datagram;
-  static write_datagram_fun write_datagram;
-};
-
 read_datagram_fun udp_policy::read_datagram = network::read_datagram;
-write_datagram_fun udp_policy::write_datagram = network::write_datagram;
 
-}; // namespace <anonymous>
+write_datagram_fun udp_policy::write_datagram = network::write_datagram;
 
 // -- Platform-independent parts of the default_multiplexer --------------------
 
@@ -972,114 +961,10 @@ expected<doorman_ptr> default_multiplexer::new_tcp_doorman(uint16_t port,
 }
 
 dgram_servant_ptr
-new_dgram_servant_with_handler(
-  std::shared_ptr<dgram_handler_impl<udp_policy>> ptr,
-  int64_t id
-) {
+new_dgram_servant_with_handler(std::shared_ptr<dgram_handler_impl<udp_policy>> ptr,
+                               int64_t id) {
   CAF_LOG_TRACE(CAF_ARG(id));
-  class impl : public dgram_servant {
-    using handler_type = dgram_handler_impl<udp_policy>;
-  public:
-    impl(std::shared_ptr<handler_type> ptr, int64_t id)
-      : dgram_servant(dgram_handle::from_int(id)),
-        launched_(false),
-        handler_ptr_(ptr) {
-//      std::cout << "[nds] {" << id << "} is a new servant"  << std::endl;
-      // nop
-    }
-    ~impl() {
-//      std::cout << "[~] destructing {" << hdl().id() << "}" << std::endl;
-    }
-    bool new_endpoint(ip_endpoint& ep, std::vector<char>& buf) override {
-//      std::cout << "[ne] {" << hdl().id() << "} encountered new endpoint: "
-//                << to_string(ep) << std::endl;
-      CAF_LOG_TRACE("");
-      if (detached())
-         // we are already disconnected from the broker while the multiplexer
-         // did not yet remove the socket, this can happen if an I/O event
-         // causes the broker to call close_all() while the pollset contained
-         // further activities for the broker
-         return false;
-      auto& dm = handler_ptr_->backend();
-      auto id = dm.next_endpoint_id();
-      auto sptr = new_dgram_servant_with_handler(handler_ptr_, id);
-      sptr->add_endpoint(ep);
-      parent()->add_dgram_servant(sptr);
-      return sptr->consume(&dm, buf);
-    }
-    void configure_datagram_size(size_t buf_size) override {
-      handler_ptr_->configure_datagram_size(buf_size);
-      // TODO: is this necessary?
-      if (!launched_)
-        launch();
-    }
-    void ack_writes(bool enable) override {
-      CAF_LOG_TRACE(CAF_ARG(enable));
-      handler_ptr_->ack_writes(enable);
-    }
-    std::vector<char>& wr_buf() override {
-//      std::cout << "[wb] {" << hdl().id() << "} is getting a new job"
-//                << std::endl;
-      return handler_ptr_->wr_buf(hdl().id());
-    }
-    std::vector<char>& rd_buf() override {
-      return handler_ptr_->rd_buf();
-    }
-    void stop_reading() override {
-      CAF_LOG_TRACE("");
-      handler_ptr_->stop_reading();
-      detach(&handler_ptr_->backend(), false);
-    }
-    void flush() override {
-      CAF_LOG_TRACE("");
-      handler_ptr_->flush(hdl().id(), ep_, this);
-    }
-    std::string addr() const override {
-      auto x = remote_addr_of_fd(handler_ptr_->fd());
-      if (!x)
-        return "";
-      return *x;
-    }
-    uint16_t port() const override {
-      auto x = remote_port_of_fd(handler_ptr_->fd());
-      if (!x)
-        return 0;
-      return *x;
-    }
-    uint16_t local_port() const override {
-      auto x = local_port_of_fd(handler_ptr_->fd());
-      if (!x)
-        return 0;
-      return *x;
-    }
-    // TODO: should this be a constructor argument?
-    void add_endpoint(ip_endpoint& ep) override {
-      ep_ = ep;
-      handler_ptr_->add_endpoint(hdl().id(), ep, this);
-    }
-    void remove_endpoint() override {
-      handler_ptr_->remove_endpoint(hdl().id());
-    }
-    void launch() override {
-      CAF_LOG_TRACE("");
-      CAF_ASSERT(!launched_);
-      launched_ = true;
-      handler_ptr_->start(this);
-    }
-    void add_to_loop() override {
-      handler_ptr_->activate(this);
-    }
-    void remove_from_loop() override {
-      handler_ptr_->passivate();
-    }
-  private:
-    bool launched_;
-    // TODO: endpoint might be copied rather often ... needs more efficient
-    //       handling, maybe keep it on the heap and use a shared pointer
-    ip_endpoint ep_;
-    std::shared_ptr<handler_type>  handler_ptr_;
-  };
-  return make_counted<impl>(ptr, id);
+  return make_counted<dgram_servant_impl>(ptr, id);
 }
 
 dgram_servant_ptr default_multiplexer::new_dgram_servant(native_socket fd) {
@@ -1480,7 +1365,7 @@ size_t dgram_handler::max_consecutive_reads() {
 }
 
 void dgram_handler::prepare_next_read() {
-  CAF_LOG_TRACE(CAF_ARG(wr_buf_.size()) << CAF_ARG(wr_offline_buf_.size()));
+  CAF_LOG_TRACE(CAF_ARG(wr_buf_.second.size()) << CAF_ARG(wr_offline_buf_.size()));
   rd_buf_.resize(dgram_size_);
 }
 
@@ -1957,6 +1842,110 @@ void scribe_impl::add_to_loop() {
 
 void scribe_impl::remove_from_loop() {
   stream_.passivate();
+}
+
+dgram_servant_impl::dgram_servant_impl(std::shared_ptr<handler_type> ptr,
+                                       int64_t id)
+  : dgram_servant(dgram_handle::from_int(id)),
+    launched_(false),
+    handler_ptr_(ptr) {
+  // nop
+}
+
+bool dgram_servant_impl::new_endpoint(ip_endpoint& ep, std::vector<char>& buf) {
+//      std::cout << "[ne] {" << hdl().id() << "} encountered new endpoint: "
+//                << to_string(ep) << std::endl;
+  CAF_LOG_TRACE("");
+  if (detached())
+     // we are already disconnected from the broker while the multiplexer
+     // did not yet remove the socket, this can happen if an I/O event
+     // causes the broker to call close_all() while the pollset contained
+     // further activities for the broker
+     return false;
+  auto& dm = handler_ptr_->backend();
+  auto id = dm.next_endpoint_id();
+  auto sptr = new_dgram_servant_with_handler(handler_ptr_, id);
+  sptr->add_endpoint(ep);
+  parent()->add_dgram_servant(sptr);
+  return sptr->consume(&dm, buf);
+}
+
+void dgram_servant_impl::configure_datagram_size(size_t buf_size) {
+  handler_ptr_->configure_datagram_size(buf_size);
+  // TODO: is this necessary?
+  if (!launched_)
+    launch();
+}
+
+void dgram_servant_impl::ack_writes(bool enable) {
+  CAF_LOG_TRACE(CAF_ARG(enable));
+  handler_ptr_->ack_writes(enable);
+}
+
+std::vector<char>& dgram_servant_impl::wr_buf() {
+//      std::cout << "[wb] {" << hdl().id() << "} is getting a new job"
+//                << std::endl;
+  return handler_ptr_->wr_buf(hdl().id());
+}
+
+std::vector<char>& dgram_servant_impl::rd_buf() {
+  return handler_ptr_->rd_buf();
+}
+
+void dgram_servant_impl::stop_reading() {
+  CAF_LOG_TRACE("");
+  handler_ptr_->stop_reading();
+  detach(&handler_ptr_->backend(), false);
+}
+
+void dgram_servant_impl::flush() {
+  CAF_LOG_TRACE("");
+  handler_ptr_->flush(hdl().id(), ep_, this);
+}
+
+std::string dgram_servant_impl::addr() const {
+  auto x = remote_addr_of_fd(handler_ptr_->fd());
+  if (!x)
+    return "";
+  return *x;
+}
+
+uint16_t dgram_servant_impl::port() const {
+  auto x = remote_port_of_fd(handler_ptr_->fd());
+  if (!x)
+    return 0;
+  return *x;
+}
+
+uint16_t dgram_servant_impl::local_port() const {
+  auto x = local_port_of_fd(handler_ptr_->fd());
+  if (!x)
+    return 0;
+  return *x;
+}
+
+void dgram_servant_impl::add_endpoint(ip_endpoint& ep) {
+  ep_ = ep;
+  handler_ptr_->add_endpoint(hdl().id(), ep, this);
+}
+
+void dgram_servant_impl::remove_endpoint() {
+  handler_ptr_->remove_endpoint(hdl().id());
+}
+
+void dgram_servant_impl::launch() {
+  CAF_LOG_TRACE("");
+  CAF_ASSERT(!launched_);
+  launched_ = true;
+  handler_ptr_->start(this);
+}
+
+void dgram_servant_impl::add_to_loop() {
+  handler_ptr_->activate(this);
+}
+
+void dgram_servant_impl::remove_from_loop() {
+  handler_ptr_->passivate();
 }
 
 } // namespace network
