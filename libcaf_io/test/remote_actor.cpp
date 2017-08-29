@@ -199,47 +199,33 @@ CAF_TEST(identity_semantics_udp) {
   anon_send_exit(server, exit_reason::user_shutdown);
 }
 
-/*
 CAF_TEST(ping_pong_udp) {
   // server side
-  auto server_uri = io::uri::make(uri_udp);
-  CAF_REQUIRE(server_uri);
   CAF_EXP_THROW(port,
-                server_side_mm.publish(server_side.spawn(make_pong_behavior),
-                                       *server_uri));
-  CAF_MESSAGE("Created server.");
+                server_side_mm.publish_udp(server_side.spawn(make_pong_behavior),
+                                           0, local_host));
   // client side
-  auto uri_with_port = io::uri::make(string(uri_udp) + ":" + to_string(port));
-  CAF_REQUIRE(uri_with_port);
-  CAF_EXP_THROW(pong, client_side_mm.remote_actor(*uri_with_port));
-  CAF_MESSAGE("Acquired actor proxy.");
+  CAF_EXP_THROW(pong, client_side_mm.remote_actor_udp(local_host, port));
   client_side.spawn(make_ping_behavior, pong);
-  CAF_MESSAGE("Started ping-pong.");
 }
 
 CAF_TEST(custom_message_type_udp) {
   // server side
-  auto server_uri = io::uri::make(uri_udp);
-  CAF_REQUIRE(server_uri);
-  CAF_EXP_THROW(port, server_side_mm.publish(server_side.spawn(make_sort_behavior),
-                                             *server_uri));
+  CAF_EXP_THROW(port,
+                server_side_mm.publish_udp(server_side.spawn(make_sort_behavior),
+                                           0, local_host));
   // client side
-  auto uri_with_port = io::uri::make(string(uri_udp) + ":" + to_string(port));
-  CAF_REQUIRE(uri_with_port);
-  CAF_EXP_THROW(sorter, client_side_mm.remote_actor(*uri_with_port));
+  CAF_EXP_THROW(sorter, client_side_mm.remote_actor_udp(local_host, port));
   client_side.spawn(make_sort_requester_behavior, sorter);
 }
 
 CAF_TEST(remote_link_udp) {
   // server side
-  auto server_uri = io::uri::make(uri_udp);
-  CAF_REQUIRE(server_uri);
-  CAF_EXP_THROW(port, server_side_mm.publish(server_side.spawn(fragile_mirror),
-                                             *server_uri));
+  CAF_EXP_THROW(port,
+                server_side_mm.publish_udp(server_side.spawn(fragile_mirror),
+                                           0, local_host));
   // client side
-  auto uri_with_port = io::uri::make(string(uri_udp) + ":" + to_string(port));
-  CAF_REQUIRE(uri_with_port);
-  CAF_EXP_THROW(mirror, client_side_mm.remote_actor(*uri_with_port));
+  CAF_EXP_THROW(mirror, client_side_mm.remote_actor_udp(local_host, port));
   auto linker = client_side.spawn(linking_actor, mirror);
   scoped_actor self{client_side};
   self->wait_for(linker);
@@ -247,6 +233,5 @@ CAF_TEST(remote_link_udp) {
   self->wait_for(mirror);
   CAF_MESSAGE("mirror exited");
 }
-*/
 
 CAF_TEST_FIXTURE_SCOPE_END()
