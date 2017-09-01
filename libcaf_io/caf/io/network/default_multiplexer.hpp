@@ -1008,6 +1008,8 @@ public:
 
   bool new_endpoint(ip_endpoint& ep, std::vector<char>& buf) override;
 
+  bool new_endpoint(int64_t id, std::vector<char>& buf) override;
+
   void configure_datagram_size(size_t buf_size) override;
 
   void ack_writes(bool enable) override;
@@ -1027,6 +1029,8 @@ public:
   uint16_t local_port() const override;
 
   void add_endpoint(ip_endpoint& ep) override;
+
+  void add_endpoint() override;
 
   void remove_endpoint() override;
 

@@ -66,7 +66,9 @@ public:
   /// Adds a new remote endpoint identified by the `ip_endpoint` to
   /// the related manager.
   virtual void add_endpoint(network::ip_endpoint& ep) = 0;
-  
+
+  virtual void add_endpoint() = 0;
+
   virtual void remove_endpoint() = 0;
 
   void io_failure(execution_unit* ctx, network::operation op) override;
@@ -93,4 +95,3 @@ using dgram_servant_ptr = intrusive_ptr<dgram_servant>;
 CAF_ALLOW_UNSAFE_MESSAGE_TYPE(caf::io::dgram_servant_ptr)
 
 #endif // CAF_IO_DGRAM_SERVANT_HPP
-

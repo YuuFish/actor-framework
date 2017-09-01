@@ -1731,11 +1731,11 @@ doorman_impl::doorman_impl(default_multiplexer& mx, native_socket sockfd,
 bool doorman_impl::new_connection() {
   CAF_LOG_TRACE("");
   if (detached())
-     // we are already disconnected from the broker while the multiplexer
-     // did not yet remove the socket, this can happen if an I/O event causes
-     // the broker to call close_all() while the pollset contained
-     // further activities for the broker
-     return false;
+    // we are already disconnected from the broker while the multiplexer
+    // did not yet remove the socket, this can happen if an I/O event causes
+    // the broker to call close_all() while the pollset contained
+    // further activities for the broker
+    return false;
   auto& dm = acceptor_.backend();
   auto sptr = dm.new_scribe(acceptor_.accepted_socket());
   auto hdl = sptr->hdl();
@@ -1870,6 +1870,22 @@ bool dgram_servant_impl::new_endpoint(ip_endpoint& ep, std::vector<char>& buf) {
   return sptr->consume(&dm, buf);
 }
 
+// TODO: before calling this, the caller creates a new id and registers
+//       the related ip_endpoint with the id at the event handler.
+bool dgram_servant_impl::new_endpoint(int64_t id, std::vector<char>& buf) {
+  CAF_LOG_TRACE("");
+  if (detached())
+     // we are already disconnected from the broker while the multiplexer
+     // did not yet remove the socket, this can happen if an I/O event
+     // causes the broker to call close_all() while the pollset contained
+     // further activities for the broker
+     return false;
+  auto& dm = handler_ptr_->backend();
+  auto sptr = new_dgram_servant_with_handler(handler_ptr_, id);
+  parent()->add_dgram_servant(sptr);
+  return sptr->consume(&dm, buf);
+}
+
 void dgram_servant_impl::configure_datagram_size(size_t buf_size) {
   handler_ptr_->configure_datagram_size(buf_size);
   // TODO: is this necessary?
@@ -1927,6 +1943,13 @@ uint16_t dgram_servant_impl::local_port() const {
 void dgram_servant_impl::add_endpoint(ip_endpoint& ep) {
   ep_ = ep;
   handler_ptr_->add_endpoint(hdl().id(), ep, this);
+}
+
+void dgram_servant_impl::add_endpoint() {
+  // TODO: implement this.
+  // Should remove endpoints from servants, only keeping the
+  // related data in the associated event handler
+  // handler_ptr_->add_endpoint(hdl().id(), this);
 }
 
 void dgram_servant_impl::remove_endpoint() {

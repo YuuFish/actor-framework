@@ -45,6 +45,8 @@ public:
   /// @returns `true` if the manager accepts further enpoints,
   ///          otherwise `false`.
   virtual bool new_endpoint(ip_endpoint& ep, std::vector<char>& buf) = 0;
+
+  virtual bool new_endpoint(int64_t id, std::vector<char>& buf) = 0;
 };
 
 } // namespace network
@@ -52,4 +54,3 @@ public:
 } // namespace caf
 
 #endif // CAF_IO_NETWORK_DGRAM_MANAGER_HPP
-
