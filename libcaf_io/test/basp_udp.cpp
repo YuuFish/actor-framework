@@ -261,11 +261,11 @@ public:
     return {hdr, std::move(payload)};
   }
 
-  // TODO: rename to contact_node
   void establish_communication(node& n,
                                optional<dgram_handle> ix = none,
                                actor_id published_actor_id = invalid_actor_id,
-                               const set<string>& published_actor_ifs = std::set<std::string>{}) {
+                               const set<string>& published_actor_ifs
+                                 = std::set<std::string>{}) {
     auto src = ix ? *ix : dhdl_;
     CAF_MESSAGE("establish communiction on node " << n.name
                 << ", delegated servant ID = " << n.endpoint.id()
@@ -362,13 +362,14 @@ public:
       CAF_MESSAGE("expect #" << num);
       buffer buf;
       this_->to_payload(buf, xs...);
-      buffer& ob = this_->mpx()->output_buffer(hdl);
-      while (ob.size() < basp::header_size) {
-        CAF_MESSAGE("buffer has " << ob.size() << " bytes, expecting "
-                    << basp::header_size << " bytes");
+      auto& oq = this_->mpx()->output_queue(hdl);
+      while (oq.empty())
         this_->mpx()->exec_runnable();
-      }
-      CAF_MESSAGE("output buffer has " << ob.size() << " bytes");
+      CAF_MESSAGE("output queue has " << oq.size() << " messages");
+      int64_t id = oq.front().first;
+      buffer& ob = oq.front().second;
+      CAF_MESSAGE("next datagram has " << oq.front().second.size()
+                  << " bytes and is handled by servant = " << id);
       basp::header hdr;
       { // lifetime scope of source
         binary_deserializer source{this_->mpx(), ob};
@@ -381,12 +382,9 @@ public:
         auto first = ob.begin() + basp::header_size;
         auto end = first + hdr.payload_len;
         payload.assign(first, end);
-        CAF_MESSAGE("erase " << std::distance(ob.begin(), end)
-                    << " bytes from output buffer");
-        ob.erase(ob.begin(), end);
-      } else {
-        ob.erase(ob.begin(), ob.begin() + basp::header_size);
-      }
+      } 
+      CAF_MESSAGE("erase message from output queue");
+      oq.pop_front();
       CAF_CHECK_EQUAL(operation, hdr.operation);
       CAF_CHECK_EQUAL(flags, static_cast<size_t>(hdr.flags));
       CAF_CHECK_EQUAL(payload_len, hdr.payload_len);
@@ -526,26 +524,6 @@ CAF_TEST(non_empty_server_handshake_udp) {
   CAF_CHECK_EQUAL(hexstr(buf), hexstr(expected_buf));
 }
 
-//CAF_TEST(remote_address_and_port) {
-  //CAF_MESSAGE("connect to Mars");
-  //connect_node(mars());
-  //auto mm = sys.middleman().actor_handle();
-  //CAF_MESSAGE("ask MM about node ID of Mars");
-  //self()->send(mm, get_atom::value, mars().id);
-  //do {
-    //mpx()->exec_runnable();
-  //} while (!self()->has_next_message());
-  //CAF_MESSAGE("receive result of MM");
-  //self()->receive(
-    //[&](const node_id& nid, const std::string& addr, uint16_t port) {
-      //CAF_CHECK_EQUAL(nid, mars().id);
-      //// all test nodes have address "test" and connection handle ID as port
-      //CAF_CHECK_EQUAL(addr, "test");
-      //CAF_CHECK_EQUAL(port, mars().connection.id());
-    //}
-  //);
-//}
-
 CAF_TEST(remote_address_and_port_udp) {
   CAF_MESSAGE("connect to Mars");
   establish_communication(mars());
@@ -631,7 +609,8 @@ CAF_TEST(client_handshake_and_dispatch_udp) {
   );
   CAF_MESSAGE("exec message of forwarding proxy");
   mpx()->exec_runnable();
-  dispatch_out_buf(jupiter().connection); // deserialize and send message from out buf
+  // deserialize and send message from out buf
+  dispatch_out_buf(jupiter().connection);
   jupiter().dummy_actor->receive(
     [](int i) {
       CAF_CHECK_EQUAL(i, 6);

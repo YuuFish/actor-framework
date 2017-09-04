@@ -133,10 +133,14 @@ public:
   buffer_type& input_buffer(connection_handle hdl);
 
   /// Returns the output buffer of the dgram servant identified by `hdl`.
-  buffer_type& output_buffer(dgram_handle hdl);
+  job_type& output_buffer(dgram_handle hdl);
+
+  /// Returns the queue with all outgoing datagrams for the dgram servant
+  /// identified by `hdl`.
+  job_buffer_type& output_queue(dgram_handle hdl);
 
   /// Returns the input buffer of the dgram servant identified by `hdl`.
-  buffer_type& input_buffer(dgram_handle hdl);
+  job_type& input_buffer(dgram_handle hdl);
 
   /// Returns the configured read policy of the scribe identified by `hdl`.
   receive_policy::config& read_config(connection_handle hdl);

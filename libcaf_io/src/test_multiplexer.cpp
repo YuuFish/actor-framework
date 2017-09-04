@@ -56,7 +56,10 @@ test_multiplexer::dgram_servant_data::dgram_servant_data(shared_job_buffer_type 
       wr_buf(*wr_buf_ptr),
       stopped_reading(false),
       passive_mode(false),
-      ack_writes(false) {
+      ack_writes(false),
+      port(0),
+      local_port(0),
+      datagram_size(1500) {
   // nop
 }
 
@@ -341,7 +344,6 @@ test_multiplexer::new_dgram_servant_with_data(dgram_handle hdl,
       abort();
     }
     bool new_endpoint(int64_t id, std::vector<char>& buf) override {
-      std::cerr << "[tm] creating new endpoint with id " << id << std::endl;
       dgram_handle ch;
       { // Try to get a connection handle of a pending connect.
         guard_type guard{mpx_->mx_};
@@ -352,10 +354,10 @@ test_multiplexer::new_dgram_servant_with_data(dgram_handle hdl,
         ch = i->second;
         pc.erase(i);
       }
-      // TODO: share access to dgram_data_?
+      CAF_LOG_INFO("new endpoint" << ch << "on servant" << hdl());
       auto servant = mpx_->new_dgram_servant(ch, mpx_->local_port(hdl()));
       servant->add_endpoint();
-      mpx_->servants(hdl())[id] = servant;
+      // mpx_->servants(hdl())[id] = servant;
       parent()->add_dgram_servant(servant);
       return servant->consume(mpx_, buf);
     }
@@ -366,12 +368,13 @@ test_multiplexer::new_dgram_servant_with_data(dgram_handle hdl,
       mpx_->ack_writes(hdl()) = enable;
     }
     std::vector<char>& wr_buf() override {
-      std::cerr << "[tm] wr_buf of " << hdl().id() << std::endl;
-      return mpx_->output_buffer(hdl());
+      auto& buf = mpx_->output_buffer(hdl());
+      buf.first = hdl().id();
+      return buf.second;
     }
     std::vector<char>& rd_buf() override {
-      std::cerr << "[tm] rd_buf of " << hdl().id() << std::endl;
-      return mpx_->input_buffer(hdl());
+      auto& buf = mpx_->input_buffer(hdl());
+      return buf.second;
     }
     void stop_reading() override {
       mpx_->stopped_reading(hdl()) = true;
@@ -387,8 +390,7 @@ test_multiplexer::new_dgram_servant_with_data(dgram_handle hdl,
       return "test";
     }
     uint16_t port() const override {
-      guard_type guard{mpx_->mx_};
-      return mpx_->port(hdl());
+      return static_cast<uint16_t>(hdl().id());
     }
     uint16_t local_port() const override {
       guard_type guard{mpx_->mx_};
@@ -422,6 +424,7 @@ test_multiplexer::new_dgram_servant_with_data(dgram_handle hdl,
     dgram_servant_data& data_;
   };
   auto dptr = make_counted<impl>(hdl, data, this);
+  // TODO: hmmmm
   // { // lifetime scope of guard
   //   guard_type guard{mx_};
   //   impl_ptr(hdl) = dptr;
@@ -564,20 +567,25 @@ test_multiplexer::input_buffer(connection_handle hdl) {
   return scribe_data_[hdl].rd_buf;
 }
 
-test_multiplexer::buffer_type&
+test_multiplexer::job_type&
 test_multiplexer::output_buffer(dgram_handle hdl) {
   CAF_ASSERT(std::this_thread::get_id() == tid_);
-  // TODO: should probably return a job_buffer_type
   auto& buf = dgram_data_[hdl].wr_buf;
   buf.emplace_back();
-  return buf.back().second;
+  return buf.back();
 }
 
-test_multiplexer::buffer_type&
+test_multiplexer::job_buffer_type&
+test_multiplexer::output_queue(dgram_handle hdl) {
+  CAF_ASSERT(std::this_thread::get_id() == tid_);
+  return dgram_data_[hdl].wr_buf;
+}
+
+test_multiplexer::job_type&
 test_multiplexer::input_buffer(dgram_handle hdl) {
   CAF_ASSERT(std::this_thread::get_id() == tid_);
   // TODO: should probably return a job_type
-  return dgram_data_[hdl].rd_buf.second;
+  return dgram_data_[hdl].rd_buf;
 }
 
 receive_policy::config& test_multiplexer::read_config(connection_handle hdl) {
@@ -743,6 +751,7 @@ bool test_multiplexer::try_accept_connection() {
 }
 
 bool test_multiplexer::try_read_data() {
+  std::cerr << "[tm] try_read_data() called" << std::endl;
   CAF_ASSERT(std::this_thread::get_id() == tid_);
   CAF_LOG_TRACE("");
   // scribe_data might change while we traverse it
@@ -804,6 +813,7 @@ bool test_multiplexer::try_read_data(connection_handle hdl) {
 }
 
 bool test_multiplexer::read_data() {
+  std::cerr << "[tm] read_data() called" << std::endl;
   CAF_ASSERT(std::this_thread::get_id() == tid_);
   CAF_LOG_TRACE("");
   // scribe_data might change while we traverse it
@@ -882,27 +892,21 @@ bool test_multiplexer::read_data(dgram_handle hdl) {
   CAF_ASSERT(std::this_thread::get_id() == tid_);
   CAF_LOG_TRACE(CAF_ARG(hdl));
   flush_runnables();
-  if (passive_mode(hdl)) {
-    std::cerr << "[tm] is in passive mode" << std::endl;
+  if (passive_mode(hdl))
     return false;
-  }
   auto& dd = dgram_data_[hdl];
+  // CAF_ASSERT(dd.ptr != nullptr);
   if (dd.ptr == nullptr || dd.ptr->parent() == nullptr
-      || !dd.ptr->parent()->getf(abstract_actor::is_initialized_flag)) {
-    std::cerr << "[tm] got no state" << std::endl;
+      || !dd.ptr->parent()->getf(abstract_actor::is_initialized_flag))
     return false;
-  }
-  if (dd.vn_buf.back().second.empty()) {
-    std::cerr << "[tm] no new data" << std::endl;
+  if (dd.vn_buf.back().second.empty())
     return false;
-  }
   dd.rd_buf.second.clear();
   std::swap(dd.rd_buf, dd.vn_buf.front());
   dd.vn_buf.pop_front();
   auto& delegate = dd.servants[dd.rd_buf.first];
   // TODO: failure should shutdown all related servants
   if (delegate == nullptr) {
-    std::cerr << "[tm] encounterd new endpoint" << std::endl;
     if (!dd.ptr->new_endpoint(dd.rd_buf.first, dd.rd_buf.second))
       passive_mode(hdl) = true;
   } else {
@@ -929,23 +933,6 @@ void test_multiplexer::virtual_send(dgram_handle dst, int64_t ep,
   vb.emplace_back(ep, buf);
   read_data(dst);
 }
-
-//void test_multiplexer::handle_endpoint(dgram_handle hdl) {
-  //CAF_ASSERT(std::this_thread::get_id() == tid_);
-  //CAF_LOG_TRACE(CAF_ARG(hdl));
-  //// Filled / initialized in the critical section.
-  //dgram_servant_data* dd;
-  //{ // Access `doorman_data_` and `pending_connects_` while holding `mx_`.
-    //guard_type guard{mx_};
-    //dd = &dgram_data_[hdl];
-  //}
-  //CAF_ASSERT(dd->ptr != nullptr);
-  //// TODO: more meaningful data
-  //ip_endpoint ep;
-  //std::vector<char> buf =
-  //if (!dd->ptr->new_endpoint(ep, buf))
-    //dd->passive_mode = true;
-//}
 
 void test_multiplexer::exec_runnable() {
   CAF_ASSERT(std::this_thread::get_id() == tid_);
