@@ -199,6 +199,10 @@ public:
     return *self_;
   }
 
+  dgram_handle endpoint_handle() {
+    return dhdl_;
+  }
+
   // implementation of the Binary Actor System Protocol
   basp::instance& instance() {
     return aut()->state.instance;
@@ -304,22 +308,21 @@ public:
     CAF_CHECK_EQUAL(path->next_hop, n.id);
   }
 
-  std::pair<basp::header, buffer> read_from_out_buf(connection_handle hdl) {
-    CAF_MESSAGE("read from output buffer for connection " << hdl.id());
-    auto& buf = mpx_->output_buffer(hdl);
-    while (buf.size() < basp::header_size)
+  std::pair<basp::header, buffer> read_from_out_buf(dgram_handle hdl) {
+    CAF_MESSAGE("read from output buffer for endpoint " << hdl.id());
+    auto& que = mpx_->output_queue(hdl);
+    while (que.empty())
       mpx()->exec_runnable();
-    auto result = from_buf(buf);
-    buf.erase(buf.begin(),
-              buf.begin() + basp::header_size + result.first.payload_len);
+    auto result = from_buf(que.front().second);
+    que.pop_front();
     return result;
   }
 
-  void dispatch_out_buf(connection_handle hdl) {
+  void dispatch_out_buf(dgram_handle hdl) {
     basp::header hdr;
     buffer buf;
     std::tie(hdr, buf) = read_from_out_buf(hdl);
-    CAF_MESSAGE("dispatch output buffer for connection " << hdl.id());
+    CAF_MESSAGE("dispatch output buffer for endpoint " << hdl.id());
     CAF_REQUIRE(hdr.operation == basp::message_type::dispatch_message);
     binary_deserializer source{mpx_, buf};
     std::vector<strong_actor_ptr> stages;
@@ -382,7 +385,7 @@ public:
         auto first = ob.begin() + basp::header_size;
         auto end = first + hdr.payload_len;
         payload.assign(first, end);
-      } 
+      }
       CAF_MESSAGE("erase message from output queue");
       oq.pop_front();
       CAF_CHECK_EQUAL(operation, hdr.operation);
@@ -544,18 +547,18 @@ CAF_TEST(remote_address_and_port_udp) {
   );
 }
 
-
-/*
-CAF_TEST(client_handshake_and_dispatch) {
-  CAF_MESSAGE("connect to Jupiter");
-  connect_node(jupiter());
-  // send a message via `dispatch` from node 0
-  mock(jupiter().connection,
+CAF_TEST(client_handshake_and_dispatch_udp) {
+  CAF_MESSAGE("establish communication with Jupiter");
+  establish_communication(jupiter());
+  CAF_MESSAGE("send dispatch message");
+  // send a message via `dispatch` from node 0 on endpoint 1
+  mock(endpoint_handle(), 1,
        {basp::message_type::dispatch_message, 0, 0, 0,
-        jupiter().id, this_node(), jupiter().dummy_actor->id(), self()->id()},
+        jupiter().id, this_node(), jupiter().dummy_actor->id(), self()->id(),
+        1}, // increment sequence number
        std::vector<actor_addr>{},
        make_message(1, 2, 3))
-  .receive(jupiter().connection,
+  .receive(jupiter().endpoint,
           basp::message_type::announce_proxy, no_flags, no_payload,
           no_operation_data, this_node(), jupiter().id,
           invalid_actor_id, jupiter().dummy_actor->id());
@@ -574,13 +577,14 @@ CAF_TEST(client_handshake_and_dispatch) {
   CAF_MESSAGE("exec message of forwarding proxy");
   mpx()->exec_runnable();
   // deserialize and send message from out buf
-  dispatch_out_buf(jupiter().connection);
+  dispatch_out_buf(jupiter().endpoint);
   jupiter().dummy_actor->receive(
     [](int i) {
       CAF_CHECK_EQUAL(i, 6);
     }
   );
 }
+/*
 CAF_TEST(client_handshake_and_dispatch_udp) {
   CAF_MESSAGE("connect to Jupiter");
   connect_node(jupiter());
