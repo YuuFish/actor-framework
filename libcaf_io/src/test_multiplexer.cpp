@@ -355,9 +355,13 @@ test_multiplexer::new_dgram_servant_with_data(dgram_handle hdl,
         pc.erase(i);
       }
       CAF_LOG_INFO("new endpoint" << ch << "on servant" << hdl());
-      auto servant = mpx_->new_dgram_servant(ch, mpx_->local_port(hdl()));
+      auto& data = mpx_->dgram_data_[hdl()];
+      // auto servant = mpx_->new_dgram_servant(ch, mpx_->local_port(hdl()));
+      auto servant = mpx_->new_dgram_servant_with_data(ch, data);
       servant->add_endpoint();
       // mpx_->servants(hdl())[id] = servant;
+      // std::cerr << "adding " << servant->hdl().id() << " as a servant to "
+      //           << mpx_->dgram_data_[hdl()].ptr->hdl().id() << std::endl;
       parent()->add_dgram_servant(servant);
       return servant->consume(mpx_, buf);
     }
@@ -408,6 +412,8 @@ test_multiplexer::new_dgram_servant_with_data(dgram_handle hdl,
     void add_endpoint() override {
       { // lifetime scope of guard
         guard_type guard{mpx_->mx_};
+        // std::cerr << "adding " << hdl().id() << " as a servant to "
+        //           << data_.ptr->hdl().id() << std::endl;
         data_.servants[hdl().id()] = this;
       }
     }
@@ -889,6 +895,7 @@ bool test_multiplexer::read_data(connection_handle hdl) {
 }
 
 bool test_multiplexer::read_data(dgram_handle hdl) {
+  std::cout << "[rd] read on endpoint " << hdl.id() << std::endl;
   CAF_ASSERT(std::this_thread::get_id() == tid_);
   CAF_LOG_TRACE(CAF_ARG(hdl));
   flush_runnables();
@@ -904,12 +911,20 @@ bool test_multiplexer::read_data(dgram_handle hdl) {
   dd.rd_buf.second.clear();
   std::swap(dd.rd_buf, dd.vn_buf.front());
   dd.vn_buf.pop_front();
+  std::cerr << "available servants: " << std::endl;
+  for (auto& s : dd.servants)
+    std::cerr << " > " << s.first << std::endl;
+  std::cerr << "looking for: " << dd.rd_buf.first << std::endl;
   auto& delegate = dd.servants[dd.rd_buf.first];
   // TODO: failure should shutdown all related servants
   if (delegate == nullptr) {
+    std::cout << "[rd] datgram with " << dd.rd_buf.second.size() << " bytes "
+              << "on new endpoint "<< dd.rd_buf.first << std::endl;
     if (!dd.ptr->new_endpoint(dd.rd_buf.first, dd.rd_buf.second))
       passive_mode(hdl) = true;
   } else {
+    std::cout << "[rd] datgram with " << dd.rd_buf.second.size() << " bytes "
+              << "on known endpoint "<< delegate->hdl().id() << std::endl;
     if (!delegate->consume(this, dd.rd_buf.second))
       passive_mode(hdl) = true;
   }

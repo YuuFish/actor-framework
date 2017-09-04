@@ -327,6 +327,37 @@ bool instance::handle(execution_unit* ctx, new_datagram_msg& dm,
   // Message arrived as expected
   ep.seq_incoming += 1;
   // TODO: Add optional reliability here (send acks, ...)
+  // TODO: if-statement below is jsut copy-paste from TCP, should be extracted
+  //       into a function!
+  if (!is_handshake(ep.hdr) && !is_heartbeat(ep.hdr) && ep.hdr.dest_node != this_node_) {
+    CAF_LOG_DEBUG("forward message");
+    auto path = lookup(ep.hdr.dest_node);
+    if (path) {
+      binary_serializer bs{ctx, visit(wr_buf_, path->hdl)};
+      auto e = bs(ep.hdr);
+      if (e)
+        return err();
+      if (payload != nullptr)
+        bs.apply_raw(payload->size(), payload->data());
+      tbl_.flush(*path);
+      notify<hook::message_forwarded>(ep.hdr, payload);
+    } else {
+      CAF_LOG_INFO("cannot forward message, no route to destination");
+      if (ep.hdr.source_node != this_node_) {
+        // TODO: signalize error back to sending node
+        auto reverse_path = lookup(ep.hdr.source_node);
+        if (!reverse_path) {
+          CAF_LOG_WARNING("cannot send error message: no route to source");
+        } else {
+          CAF_LOG_WARNING("not implemented yet: signalize forward failure");
+        }
+      } else {
+        CAF_LOG_WARNING("lost packet with probably spoofed source");
+      }
+      notify<hook::message_forwarding_failed>(ep.hdr, payload);
+    }
+    return true;
+  }
   if (!handle(ctx, dm.handle, ep.hdr, payload, false, ep, ep.local_port))
     return err();
   // Look for pending messages

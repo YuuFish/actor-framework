@@ -136,7 +136,7 @@ public:
       for (auto& c : tmp)
         c = static_cast<uint8_t>(c + i + 1);
       n.id = node_id{this_node_.process_id() + i + 1, tmp};
-      n.endpoint = dgram_handle::from_int(i + 1);
+      n.endpoint = dgram_handle::from_int(i + 2);
       new (&n.dummy_actor) scoped_actor(sys);
       // register all pseudo remote actors in the registry
       registry_->put(n.dummy_actor->id(),
@@ -147,9 +147,12 @@ public:
     nodes_[0].name = "Jupiter";
     nodes_[1].name = "Mars";
     CAF_REQUIRE_NOT_EQUAL(jupiter().endpoint, mars().endpoint);
-    CAF_MESSAGE("Earth:   " << to_string(this_node_));
-    CAF_MESSAGE("Jupiter: " << to_string(jupiter().id));
-    CAF_MESSAGE("Mars:    " << to_string(mars().id));
+    CAF_MESSAGE("Earth:   " << to_string(this_node_) << ", ID = "
+                << endpoint_handle().id());
+    CAF_MESSAGE("Jupiter: " << to_string(jupiter().id) << ", ID = "
+                << jupiter().endpoint.id());
+    CAF_MESSAGE("Mars:    " << to_string(mars().id) << ", ID = "
+                << mars().endpoint.id());
     CAF_REQUIRE_NOT_EQUAL(this_node_, jupiter().id);
     CAF_REQUIRE_NOT_EQUAL(jupiter().id,  mars().id);
   }
@@ -362,7 +365,7 @@ public:
                     maybe<actor_id> source_actor,
                     maybe<actor_id> dest_actor,
                     const Ts&... xs) {
-      CAF_MESSAGE("expect #" << num);
+      CAF_MESSAGE("expect #" << num << " on endpoint ID = " << hdl.id());
       buffer buf;
       this_->to_payload(buf, xs...);
       auto& oq = this_->mpx()->output_queue(hdl);
@@ -372,7 +375,7 @@ public:
       int64_t id = oq.front().first;
       buffer& ob = oq.front().second;
       CAF_MESSAGE("next datagram has " << oq.front().second.size()
-                  << " bytes and is handled by servant = " << id);
+                  << " bytes, servant ID = " << id);
       basp::header hdr;
       { // lifetime scope of source
         binary_deserializer source{this_->mpx(), ob};
@@ -552,7 +555,7 @@ CAF_TEST(client_handshake_and_dispatch_udp) {
   establish_communication(jupiter());
   CAF_MESSAGE("send dispatch message");
   // send a message via `dispatch` from node 0 on endpoint 1
-  mock(endpoint_handle(), 1,
+  mock(endpoint_handle(), 2,
        {basp::message_type::dispatch_message, 0, 0, 0,
         jupiter().id, this_node(), jupiter().dummy_actor->id(), self()->id(),
         1}, // increment sequence number
@@ -584,62 +587,30 @@ CAF_TEST(client_handshake_and_dispatch_udp) {
     }
   );
 }
-/*
-CAF_TEST(client_handshake_and_dispatch_udp) {
-  CAF_MESSAGE("connect to Jupiter");
-  connect_node(jupiter());
-  // send a message via `dispatch` from node 0
-  mock(jupiter().connection,
-       {basp::message_type::dispatch_message, 0, 0, 0,
-        jupiter().id, this_node(), jupiter().dummy_actor->id(), self()->id(),
-        1},
-       std::vector<actor_addr>{},
-       make_message(1, 2, 3))
-  .expect(jupiter().connection,
-          basp::message_type::announce_proxy, no_flags, no_payload,
-          no_operation_data, this_node(), jupiter().id,
-          invalid_actor_id, jupiter().dummy_actor->id());
-  // must've created a proxy for our remote actor
-  CAF_REQUIRE(proxies().count_proxies(jupiter().id) == 1);
-  // must've send remote node a message that this proxy is monitored now
-  // receive the message
-  self()->receive(
-    [](int a, int b, int c) {
-      CAF_CHECK_EQUAL(a, 1);
-      CAF_CHECK_EQUAL(b, 2);
-      CAF_CHECK_EQUAL(c, 3);
-      return a + b + c;
-    }
-  );
-  CAF_MESSAGE("exec message of forwarding proxy");
-  mpx()->exec_runnable();
-  // deserialize and send message from out buf
-  dispatch_out_buf(jupiter().connection);
-  jupiter().dummy_actor->receive(
-    [](int i) {
-      CAF_CHECK_EQUAL(i, 6);
-    }
-  );
-}
 
-CAF_TEST(message_forwarding) {
+CAF_TEST(message_forwarding_udp) {
   // connect two remote nodes
-  connect_node(jupiter());
-  connect_node(mars());
+  CAF_MESSAGE("establish communication with Jupiter");
+  establish_communication(jupiter());
+  CAF_MESSAGE("establish communication with Mars");
+  establish_communication(mars());
+  CAF_MESSAGE("send dispatch message to ... ");
   auto msg = make_message(1, 2, 3);
   // send a message from node 0 to node 1, forwarded by this node
-  mock(jupiter().connection,
+  mock(endpoint_handle(), jupiter().endpoint.id(),
        {basp::message_type::dispatch_message, 0, 0, 0,
         jupiter().id, mars().id,
-        invalid_actor_id, mars().dummy_actor->id()},
+        invalid_actor_id, mars().dummy_actor->id(),
+        1}, // increment sequence number
        msg)
-  .receive(mars().connection,
-          basp::message_type::dispatch_message, no_flags, any_vals,
-          no_operation_data, jupiter().id, mars().id,
-          invalid_actor_id, mars().dummy_actor->id(),
-          msg);
+  .receive(mars().endpoint,
+           basp::message_type::dispatch_message, no_flags, any_vals,
+           no_operation_data, jupiter().id, mars().id,
+           invalid_actor_id, mars().dummy_actor->id(),
+           msg);
 }
 
+/*
 CAF_TEST(publish_and_connect) {
   auto ax = accept_handle::from_int(4242);
   mpx()->provide_acceptor(4242, ax);
