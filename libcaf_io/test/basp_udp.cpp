@@ -19,7 +19,7 @@
 
 #include "caf/config.hpp"
 
-#define CAF_SUITE io_basp
+#define CAF_SUITE io_basp_udp
 #include "caf/test/dsl.hpp"
 
 #include <array>
@@ -269,11 +269,11 @@ public:
   }
 
   void establish_communication(node& n,
-                               optional<dgram_handle> ix = none,
+                               optional<dgram_handle> dx = none,
                                actor_id published_actor_id = invalid_actor_id,
                                const set<string>& published_actor_ifs
                                  = std::set<std::string>{}) {
-    auto src = ix ? *ix : dhdl_;
+    auto src = dx ? *dx : dhdl_;
     CAF_MESSAGE("establish communiction on node " << n.name
                 << ", delegated servant ID = " << n.endpoint.id()
                 << ", initial servant ID = " << src.id());
@@ -376,6 +376,7 @@ public:
       buffer& ob = oq.front().second;
       CAF_MESSAGE("next datagram has " << oq.front().second.size()
                   << " bytes, servant ID = " << id);
+      CAF_CHECK_EQUAL(id, hdl.id());
       basp::header hdr;
       { // lifetime scope of source
         binary_deserializer source{this_->mpx(), ob};
@@ -399,6 +400,7 @@ public:
       CAF_CHECK_EQUAL(dest_node, hdr.dest_node);
       CAF_CHECK_EQUAL(source_actor, hdr.source_actor);
       CAF_CHECK_EQUAL(dest_actor, hdr.dest_actor);
+      CAF_MESSAGE("buf size: " << buf.size() << " vs. payload size: " << payload.size());
       CAF_REQUIRE_EQUAL(buf.size(), payload.size());
       CAF_REQUIRE_EQUAL(hexstr(buf), hexstr(payload));
       ++num;
@@ -610,26 +612,16 @@ CAF_TEST(message_forwarding_udp) {
            msg);
 }
 
-/*
-CAF_TEST(publish_and_connect) {
-  auto ax = accept_handle::from_int(4242);
-  mpx()->provide_acceptor(4242, ax);
-  auto res = sys.middleman().publish(self(), 4242);
-  CAF_REQUIRE(res == 4242);
-  mpx()->flush_runnables(); // process publish message in basp_broker
-  connect_node(jupiter(), ax, self()->id());
-}
 CAF_TEST(publish_and_connect_udp) {
-  auto ax = accept_hdl_t::from_int(4242);
-  mpx()->provide_dgram_doorman(4242, ax);
-  auto u = uri::make("udp://0.0.0.0:4242");
-  CAF_REQUIRE(u);
-  auto res = system.middleman().publish(self(), *u);
+  auto dx = dgram_handle::from_int(4242);
+  mpx()->provide_dgram_servant(4242, dx);
+  auto res = sys.middleman().publish_udp(self(), 4242);
   CAF_REQUIRE(res == 4242);
   mpx()->flush_runnables(); // process publish message in basp_broker
-  connect_node(jupiter(), ax, self()->id());
+  establish_communication(jupiter(), dx, self()->id());
 }
 
+/*
 CAF_TEST(remote_actor_and_send) {
   constexpr const char* lo = "localhost";
   CAF_MESSAGE("self: " << to_string(self()->address()));

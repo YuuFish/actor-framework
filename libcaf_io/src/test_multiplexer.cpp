@@ -410,11 +410,13 @@ test_multiplexer::new_dgram_servant_with_data(dgram_handle hdl,
       abort();
     }
     void add_endpoint() override {
+      // adapt endpoint from parent
+      // TODO: should this be more explicit,
+      // i.e., passing adapted parameters into the function?
       { // lifetime scope of guard
         guard_type guard{mpx_->mx_};
-        // std::cerr << "adding " << hdl().id() << " as a servant to "
-        //           << data_.ptr->hdl().id() << std::endl;
         data_.servants[hdl().id()] = this;
+        mpx_->local_port(hdl()) = data_.local_port;
       }
     }
     void remove_endpoint() override {
@@ -430,10 +432,10 @@ test_multiplexer::new_dgram_servant_with_data(dgram_handle hdl,
     dgram_servant_data& data_;
   };
   auto dptr = make_counted<impl>(hdl, data, this);
-  // TODO: hmmmm
   // { // lifetime scope of guard
   //   guard_type guard{mx_};
-  //   impl_ptr(hdl) = dptr;
+  //   local_port(hdl) = data.local_port;
+  //   // impl_ptr(hdl) = dptr;
   // }
   CAF_LOG_INFO("new datagram servant" << hdl);
   return dptr;
