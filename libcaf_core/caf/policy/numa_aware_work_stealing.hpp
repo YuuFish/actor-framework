@@ -177,6 +177,8 @@ public:
       // smaller We define the distance between PUs sharing the L1 cache as 1/
       // distance divider. Ergo the distance for the L2 cache is 2 / distance
       // divider, and so on.
+      // Why 100?: good readable by homans and at leat 100 cache levels are requried
+      // to collide with NUMA distances which is very unlikely.
       const float distance_divider = 100.0;
       size_t added_stages_count = 0;
       int current_cache_lvl = 1;
@@ -280,11 +282,18 @@ public:
         xxx(current_pu_set, dist_map);
       } else {
         xxx(current_pu_set, "NUMA found");
-        auto numa_node_stages = traverse_numa_nodes(
-          topo, distance_matrix, current_pu_set, current_node_set, dist_map);
-        xxx(current_pu_set, dist_map);
-        auto cache_stages = traverse_caches(topo, current_pu_set, dist_map);
-        xxx(current_pu_set, dist_map);
+        std::map<float, pu_set_t> node_dist_map;
+        std::map<float, pu_set_t> cache_dist_map;
+        auto node_stages = traverse_numa_nodes(
+          topo, distance_matrix, current_pu_set, current_node_set, node_dist_map);
+        xxx(current_pu_set, node_dist_map);
+        auto cache_stages = traverse_caches(topo, current_pu_set, cache_dist_map);
+        xxx(current_pu_set, cache_dist_map);
+        //merge distance maps
+        for (auto& e : cache_dist_map) {
+          node_dist_map.insert(move(e));
+        }
+        dist_map.swap(node_dist_map);
       }
       // return PU matrix sorted by its distance
       result_matrix.reserve(dist_map.size());
