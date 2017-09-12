@@ -138,11 +138,14 @@ public:
     // collect all PUs which are children of obj but leaving without_os_idx out
     size_t traverse_hwloc_obj(const topo_ptr& topo, const hwloc_obj_t obj,
                               pu_set_t& result_pu_set,
-                              unsigned int without_os_idx) {
+                              unsigned int filter_os_idx,
+                              const hwloc_obj_t filter_obj) {
       if (!obj)
         return 0;
+      if (obj == filter_obj)
+        return 0;
       if (obj->type == hwloc_obj_type_t::HWLOC_OBJ_PU) {
-        if (obj->os_index == without_os_idx) {
+        if (obj->os_index == filter_os_idx) {
           return 0; 
         } else {
           hwloc_bitmap_set(result_pu_set.get(), obj->os_index);
@@ -154,7 +157,7 @@ public:
         size_t pu_count = 0;
         while (current_child) {
           pu_count += traverse_hwloc_obj(topo, current_child, result_pu_set,
-                                         without_os_idx);
+                                         filter_os_idx, filter_obj);
           current_child = hwloc_get_next_child(topo.get(), obj, current_child);
         }
         return pu_count;
@@ -181,6 +184,7 @@ public:
         hwloc_bitmap_weight(dist_map.begin()->second.get());
       size_t last_pu_count = 0;
       size_t current_pu_count = 0;
+      hwloc_obj_t last_cache_obj = nullptr;
       // we traverse all cache levels, start with L1
       auto current_cache_obj =
         hwloc_get_cache_covering_cpuset(topo.get(), current_pu_set.get());
@@ -188,8 +192,9 @@ public:
       while (current_cache_obj
              && current_cache_obj->type == hwloc_obj_type_t::HWLOC_OBJ_CACHE) {
         auto result_pu_set = hwloc_bitmap_make_wrapper();
-        current_pu_count = traverse_hwloc_obj(topo, current_cache_obj,
-                                              result_pu_set, current_pu_id);
+        current_pu_count =
+          traverse_hwloc_obj(topo, current_cache_obj, result_pu_set,
+                             current_pu_id, last_cache_obj);
         if (current_pu_count > last_pu_count
             && current_pu_count < numa_pu_count) {
           auto r = dist_map.insert(make_pair(
@@ -197,6 +202,7 @@ public:
           CALL_CAF_CRITICAL(!r.second,
                             "PUs could not be stored, something went wrong");
           ++added_stages_count;
+          last_cache_obj = current_cache_obj;
         }
         ++current_cache_lvl;
         last_pu_count = current_pu_count;
@@ -267,9 +273,9 @@ public:
         hwloc_bitmap_wrapper allowed_pus;
         allowed_pus.reset(hwloc_bitmap_dup(allowed_const_pus));
         // you cannot steal from yourself
-        hwloc_bitmap_andnot(allowed_pus.get(), allowed_pus.get(),
-                            current_pu_set.get());
-        dist_map.insert(std::make_pair(1.0, std::move(allowed_pus)));  
+        //hwloc_bitmap_andnot(allowed_pus.get(), allowed_pus.get(),
+                            //current_pu_set.get());
+        //dist_map.insert(std::make_pair(1.0, std::move(allowed_pus)));  
         auto cache_stages = traverse_caches(topo, current_pu_set, dist_map);
         xxx(current_pu_set, dist_map);
       } else {
