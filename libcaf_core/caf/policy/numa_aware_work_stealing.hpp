@@ -290,7 +290,7 @@ public:
         auto cache_stages = traverse_caches(topo, current_pu_set, cache_dist_map);
         xxx(current_pu_set, cache_dist_map);
         //merge distance maps
-        for (auto& e : cache_dist_map) {
+        for (auto&& e : cache_dist_map) {
           node_dist_map.insert(move(e));
         }
         dist_map.swap(node_dist_map);
