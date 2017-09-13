@@ -286,18 +286,18 @@ public:
         std::map<float, pu_set_t> cache_dist_map;
         auto node_stages = traverse_numa_nodes(
           topo, distance_matrix, current_pu_set, current_node_set, node_dist_map);
-        xxx(current_pu_set, "A");
+        xxx(current_pu_set, "node_dist_map");
         xxx(current_pu_set, node_dist_map);
         auto cache_stages = traverse_caches(topo, current_pu_set, cache_dist_map);
-        xxx(current_pu_set, "B");
+        xxx(current_pu_set, "cache_dist_map");
         xxx(current_pu_set, cache_dist_map);
         //merge distance maps
         node_dist_map.insert(make_move_iterator(begin(cache_dist_map)),
                              make_move_iterator(end(cache_dist_map)));
-        xxx(current_pu_set, "C");
+        xxx(current_pu_set, "node_dist_map merge");
         xxx(current_pu_set, node_dist_map);
         dist_map.swap(node_dist_map);
-        xxx(current_pu_set, "D");
+        xxx(current_pu_set, "dist_map");
         xxx(current_pu_set, dist_map);
       }
       // return PU matrix sorted by its distance
