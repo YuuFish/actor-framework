@@ -104,6 +104,7 @@ public:
   struct worker_data {
     using neighbors_t = std::vector<Worker*>;
     using worker_proximity_matrix_t = std::vector<neighbors_t>;
+    using pu_distance_map_t = std::map<float, pu_set_t>;
 
     explicit worker_data(scheduler::abstract_coordinator* p)
         : rengine(std::random_device{}())
@@ -136,39 +137,31 @@ public:
     }
 
     // collect all PUs which are children of obj but leaving without_os_idx out
-    size_t traverse_hwloc_obj(const topo_ptr& topo, const hwloc_obj_t obj,
+    void traverse_hwloc_obj(const topo_ptr& topo, const hwloc_obj_t obj,
                               pu_set_t& result_pu_set,
                               unsigned int filter_os_idx,
                               const hwloc_obj_t filter_obj) {
-      if (!obj)
-        return 0;
-      if (obj == filter_obj)
-        return 0;
-      if (obj->type == hwloc_obj_type_t::HWLOC_OBJ_PU) {
-        if (obj->os_index == filter_os_idx) {
-          return 0; 
-        } else {
-          hwloc_bitmap_set(result_pu_set.get(), obj->os_index);
-          return 1;
-        }
+      if (!obj || obj == filter_obj)
+        return;
+      if (obj->type == hwloc_obj_type_t::HWLOC_OBJ_PU
+          && obj->os_index != filter_os_idx) {
+        hwloc_bitmap_set(result_pu_set.get(), obj->os_index);
       } else {
-        hwloc_obj_t current_child =
-          hwloc_get_next_child(topo.get(), obj, nullptr);
-        size_t pu_count = 0;
-        while (current_child) {
-          pu_count += traverse_hwloc_obj(topo, current_child, result_pu_set,
-                                         filter_os_idx, filter_obj);
-          current_child = hwloc_get_next_child(topo.get(), obj, current_child);
+        hwloc_obj_t child = hwloc_get_next_child(topo.get(), obj, nullptr);
+        while (child) {
+          traverse_hwloc_obj(topo, child, result_pu_set, filter_os_idx,
+                             filter_obj);
+          child = hwloc_get_next_child(topo.get(), obj, child);
         }
-        return pu_count;
       }
     }
 
     // collect for each cache level the PUs
-    size_t traverse_caches(topo_ptr& topo, const pu_set_t& current_pu_set,
-                           std::map<float, pu_set_t>& dist_map) {
+    pu_distance_map_t traverse_caches(topo_ptr& topo, const pu_set_t& current_pu_set) {
+      pu_distance_map_t result_map;
+
       if (!check_pu_id(current_pu_set))
-        return 0;
+        return result_map;
 
       // we need distance devider to do define the distance between PUs sharing
       // a cache level PUs sharing a NUMA-node have a distance of 1 by
@@ -177,58 +170,44 @@ public:
       // smaller We define the distance between PUs sharing the L1 cache as 1/
       // distance divider. Ergo the distance for the L2 cache is 2 / distance
       // divider, and so on.
-      // Why 100?: good readable by homans and at leat 100 cache levels are requried
-      // to collide with NUMA distances which is very unlikely.
+      // Why 100?: good readable by homans and at leat 100 cache levels are
+      // requried to collide with NUMA distances which is very unlikely.
       const float distance_divider = 100.0;
-      size_t added_stages_count = 0;
       int current_cache_lvl = 1;
-      size_t numa_pu_count =
-        hwloc_bitmap_weight(dist_map.begin()->second.get());
-      size_t last_pu_count = 0;
-      size_t current_pu_count = 0;
       hwloc_obj_t last_cache_obj = nullptr;
-      // we traverse all cache levels, start with L1
       auto current_cache_obj =
         hwloc_get_cache_covering_cpuset(topo.get(), current_pu_set.get());
       auto current_pu_id = hwloc_bitmap_first(current_pu_set.get());
       while (current_cache_obj
              && current_cache_obj->type == hwloc_obj_type_t::HWLOC_OBJ_CACHE) {
         auto result_pu_set = hwloc_bitmap_make_wrapper();
-        current_pu_count =
-          traverse_hwloc_obj(topo, current_cache_obj, result_pu_set,
-                             current_pu_id, last_cache_obj);
-        if (current_pu_count > last_pu_count
-            && current_pu_count < numa_pu_count) {
-          auto r = dist_map.insert(make_pair(
-            current_cache_lvl / distance_divider, move(result_pu_set)));
-          CALL_CAF_CRITICAL(!r.second,
-                            "PUs could not be stored, something went wrong");
-          ++added_stages_count;
-          last_cache_obj = current_cache_obj;
+        traverse_hwloc_obj(topo, current_cache_obj, result_pu_set,
+                           current_pu_id, last_cache_obj);
+        if (!hwloc_bitmap_iszero(result_pu_set.get())) {
+          result_map.insert(make_pair(current_cache_lvl / distance_divider,
+                                      move(result_pu_set)));
         }
         ++current_cache_lvl;
-        last_pu_count = current_pu_count;
+        last_cache_obj = current_cache_obj;
         current_cache_obj = current_cache_obj->parent;
       }
-      return added_stages_count;
+      return result_map;
     }
 
-    size_t traverse_numa_nodes(topo_ptr& topo,
+    pu_distance_map_t traverse_numa_nodes(topo_ptr& topo,
                                const hwloc_distances_s* distance_matrix,
                                const pu_set_t& current_pu_set,
-                               const node_set_t& current_node_set,
-                               std::map<float, pu_set_t>& dist_map) {
-      size_t added_stages_count = 0;
+                               const node_set_t& current_node_set) {
+      pu_distance_map_t result_map;
       auto current_node_id = hwloc_bitmap_first(current_node_set.get());
-      auto num_of_dist_objs = distance_matrix->nbobjs;
+      auto num_nodes = distance_matrix->nbobjs;
       // relvant line for the current NUMA node in distance matrix
-      float* dist_pointer =
-        &distance_matrix->latency[num_of_dist_objs
-                                  * static_cast<unsigned int>(current_node_id)];
+      float* dist_ptr =
+        &distance_matrix
+           ->latency[num_nodes * static_cast<unsigned int>(current_node_id)];
       // iterate over all NUMA nodes and classify them in distance levels
       // regarding to the current NUMA node
-      for (node_id_t x = 0; static_cast<unsigned int>(x) < num_of_dist_objs;
-           ++x) {
+      for (node_id_t x = 0; static_cast<unsigned int>(x) < num_nodes; ++x) {
         node_set_t tmp_node_set = hwloc_bitmap_make_wrapper();
         hwloc_bitmap_set(tmp_node_set.get(), static_cast<unsigned int>(x));
         auto tmp_pu_set = hwloc_bitmap_make_wrapper();
@@ -239,19 +218,17 @@ public:
           hwloc_bitmap_andnot(tmp_pu_set.get(), tmp_pu_set.get(),
                               current_pu_set.get());
         }
-        auto dist_it = dist_map.find(dist_pointer[x]);
-        if (dist_it == dist_map.end()) {
+        auto dist_it = result_map.find(dist_ptr[x]);
+        if (dist_it == result_map.end()) {
           // create a new distane level
-          dist_map.insert(
-            std::make_pair(dist_pointer[x], std::move(tmp_pu_set)));
-          ++added_stages_count;
+          result_map.insert(std::make_pair(dist_ptr[x], std::move(tmp_pu_set)));
         } else {
           // add PUs to an available distance level
           hwloc_bitmap_or(dist_it->second.get(), dist_it->second.get(),
                           tmp_pu_set.get());
         }
       }
-      return added_stages_count;
+      return result_map;
     }
 
     worker_proximity_matrix_t init_worker_proximity_matrix(Worker* self,
@@ -263,7 +240,7 @@ public:
                               current_node_set.get());
       CALL_CAF_CRITICAL(hwloc_bitmap_iszero(current_node_set.get()),
                         "Current NUMA node_set is unknown");
-      std::map<float, pu_set_t> dist_map;
+      pu_distance_map_t dist_map;
       worker_proximity_matrix_t result_matrix;
       auto distance_matrix =
         hwloc_get_whole_distance_matrix_by_type(topo.get(), HWLOC_OBJ_NUMANODE);
@@ -271,24 +248,15 @@ public:
       // have the same distance
       if (!distance_matrix || !distance_matrix->latency) {
         xxx(current_pu_set, "No NUMA found");
-        auto allowed_const_pus = hwloc_topology_get_allowed_cpuset(topo.get());
-        hwloc_bitmap_wrapper allowed_pus;
-        allowed_pus.reset(hwloc_bitmap_dup(allowed_const_pus));
-        // you cannot steal from yourself
-        //hwloc_bitmap_andnot(allowed_pus.get(), allowed_pus.get(),
-                            //current_pu_set.get());
-        //dist_map.insert(std::make_pair(1.0, std::move(allowed_pus)));  
-        auto cache_stages = traverse_caches(topo, current_pu_set, dist_map);
+        dist_map = traverse_caches(topo, current_pu_set);
         xxx(current_pu_set, dist_map);
       } else {
         xxx(current_pu_set, "NUMA found");
-        std::map<float, pu_set_t> node_dist_map;
-        std::map<float, pu_set_t> cache_dist_map;
-        auto node_stages = traverse_numa_nodes(
-          topo, distance_matrix, current_pu_set, current_node_set, node_dist_map);
+        auto node_dist_map = traverse_numa_nodes(
+          topo, distance_matrix, current_pu_set, current_node_set);
+        auto cache_dist_map = traverse_caches(topo, current_pu_set);
         xxx(current_pu_set, "node_dist_map");
         xxx(current_pu_set, node_dist_map);
-        auto cache_stages = traverse_caches(topo, current_pu_set, cache_dist_map);
         xxx(current_pu_set, "cache_dist_map");
         xxx(current_pu_set, cache_dist_map);
         //merge distance maps
@@ -300,6 +268,7 @@ public:
         xxx(current_pu_set, "dist_map");
         xxx(current_pu_set, dist_map);
       }
+      std::cout << "well done sebastian ..." << std::endl;
       // return PU matrix sorted by its distance
       result_matrix.reserve(dist_map.size());
       for (auto& pu_set_it : dist_map) {
