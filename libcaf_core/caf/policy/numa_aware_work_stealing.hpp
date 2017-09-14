@@ -255,10 +255,6 @@ public:
         auto cache_dist_map = traverse_caches(topo, current_pu_set);
         auto node_dist_map = traverse_numa_nodes(
           topo, distance_matrix, current_pu_set, current_node_set);
-        xxx(current_pu_set, "node_dist_map");
-        xxx(current_pu_set, node_dist_map);
-        xxx(current_pu_set, "cache_dist_map");
-        xxx(current_pu_set, cache_dist_map);
         // merge the distance maps.
         // The pu sets in cache_dist_map and node_dist map must have no
         // set_intersections and are accumulated later. The cache and
@@ -277,21 +273,19 @@ public:
           }
           node_dist_map.insert(make_move_iterator(begin(cache_dist_map)),
                                make_move_iterator(end(cache_dist_map)));
-          xxx(current_pu_set, "node_dist_map merge");
-          xxx(current_pu_set, node_dist_map);
           dist_map.swap(node_dist_map);
-          xxx(current_pu_set, "dist_map");
-          xxx(current_pu_set, dist_map);
         } else {
           // if node_dist_map is empty for some reason fallback to
           // cache_dist_map
           dist_map.swap(cache_dist_map);
         }
+        xxx(current_pu_set, dist_map);
       }
       std::cout << "well done sebastian ..." << std::endl;
       // return PU matrix sorted by its distance
       result_matrix.reserve(dist_map.size());
       for (auto& pu_set_it : dist_map) {
+        xxx(current_pu_set, "A1");
         std::vector<Worker*> current_lvl;
         auto pu_set = pu_set_it.second.get();
         for (pu_id_t pu_id = hwloc_bitmap_first(pu_set); pu_id != -1;
@@ -302,6 +296,7 @@ public:
           if (worker_id_it != cdata.worker_id_map.end())
             current_lvl.emplace_back(worker_id_it->second);
         }
+        xxx(current_pu_set, "A2");
         // current_lvl can be empty if all pus of NUMA node are deactivated
         if (!current_lvl.empty()) {
           // The number of workers in current_lvl must be larger then in the
@@ -315,7 +310,9 @@ public:
             result_matrix.emplace_back(std::move(current_lvl));
           }
         }
+        xxx(current_pu_set, "A3");
       }
+      xxx(current_pu_set, "B");
       //accumulate scheduler_lvls - each lvl contains all lower lvls
       auto last_lvl_it = result_matrix.begin();
       for (auto current_lvl_it = result_matrix.begin();
@@ -326,6 +323,7 @@ public:
           ++last_lvl_it;
         }
       } 
+      xxx(current_pu_set, "C");
       return result_matrix;
     }
   
