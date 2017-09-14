@@ -252,9 +252,9 @@ public:
         xxx(current_pu_set, dist_map);
       } else {
         xxx(current_pu_set, "NUMA found");
+        auto cache_dist_map = traverse_caches(topo, current_pu_set);
         auto node_dist_map = traverse_numa_nodes(
           topo, distance_matrix, current_pu_set, current_node_set);
-        auto cache_dist_map = traverse_caches(topo, current_pu_set);
         xxx(current_pu_set, "node_dist_map");
         xxx(current_pu_set, node_dist_map);
         xxx(current_pu_set, "cache_dist_map");
