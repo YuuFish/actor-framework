@@ -1,9 +1,9 @@
 # - Try to find hwloc
 # Once done this will define
 #
-#  Hwloc_FOUND        - system has OpenCL
-#  Hwloc_INCLUDE_DIRS - the OpenCL include directory
-#  Hwloc_LIBRARIES    - link these to use OpenCL
+#  Hwloc_FOUND        - system has Hwloc 
+#  Hwloc_INCLUDE_DIRS - the Hwloc include directory
+#  Hwloc_LIBRARIES    - link these to use Hwloc
 #  Hwloc_VERSION      - version
 #
 # WIN32 should work, but is untested
