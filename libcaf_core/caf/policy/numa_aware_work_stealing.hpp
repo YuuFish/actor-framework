@@ -136,7 +136,7 @@ public:
       }
     }
 
-    // collect all PUs which are children of obj but leaving without_os_idx out
+    // collects recursively all PUs which are children of obj and obj itself
     void traverse_hwloc_obj(const topo_ptr& topo, const hwloc_obj_t obj,
                               pu_set_t& result_pu_set,
                               unsigned int filter_os_idx,
@@ -156,7 +156,7 @@ public:
       }
     }
 
-    // collect for each cache level the PUs
+    // collect PUs for each cache level
     pu_distance_map_t traverse_caches(topo_ptr& topo, const pu_set_t& current_pu_set) {
       pu_distance_map_t result_map;
 
@@ -170,7 +170,7 @@ public:
       // smaller We define the distance between PUs sharing the L1 cache as 1/
       // distance divider. Ergo the distance for the L2 cache is 2 / distance
       // divider, and so on.
-      // Why 100?: good readable by homans and at leat 100 cache levels are
+      // Why 100?: readable by humans and at leat 100 cache levels are
       // requried to collide with NUMA distances which is very unlikely.
       const float distance_divider = 100.0;
       int current_cache_lvl = 1;
@@ -259,14 +259,34 @@ public:
         xxx(current_pu_set, node_dist_map);
         xxx(current_pu_set, "cache_dist_map");
         xxx(current_pu_set, cache_dist_map);
-        //merge distance maps
-        node_dist_map.insert(make_move_iterator(begin(cache_dist_map)),
-                             make_move_iterator(end(cache_dist_map)));
-        xxx(current_pu_set, "node_dist_map merge");
-        xxx(current_pu_set, node_dist_map);
-        dist_map.swap(node_dist_map);
-        xxx(current_pu_set, "dist_map");
-        xxx(current_pu_set, dist_map);
+        // merge the distance maps.
+        // The pu sets in cache_dist_map and node_dist map must have no
+        // set_intersections and are accumulated later. The cache and
+        // node map are created from different sources and are prone with
+        // intersections and must be merge with caution.
+        auto local_node_pu_set_it = node_dist_map.begin();
+        if (local_node_pu_set_it != node_dist_map.end()) {
+          // remove all pus collected in cache_node_map from the
+          // local_node_pu_set
+          auto local_node_set = local_node_pu_set_it->second.get();
+          for (auto& e : cache_dist_map) {
+            hwloc_bitmap_andnot(local_node_set, local_node_set, e.second.get());
+          }
+          if (hwloc_bitmap_iszero(local_node_set)) {
+            node_dist_map.erase(local_node_pu_set_it);
+          }
+          node_dist_map.insert(make_move_iterator(begin(cache_dist_map)),
+                               make_move_iterator(end(cache_dist_map)));
+          xxx(current_pu_set, "node_dist_map merge");
+          xxx(current_pu_set, node_dist_map);
+          dist_map.swap(node_dist_map);
+          xxx(current_pu_set, "dist_map");
+          xxx(current_pu_set, dist_map);
+        } else {
+          // if node_dist_map is empty for some reason fallback to
+          // cache_dist_map
+          dist_map.swap(cache_dist_map);
+        }
       }
       std::cout << "well done sebastian ..." << std::endl;
       // return PU matrix sorted by its distance
