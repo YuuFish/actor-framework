@@ -159,10 +159,6 @@ public:
     // collect PUs for each cache level
     pu_distance_map_t traverse_caches(topo_ptr& topo, const pu_set_t& current_pu_set) {
       pu_distance_map_t result_map;
-
-      if (!check_pu_id(current_pu_set))
-        return result_map;
-
       // we need distance devider to do define the distance between PUs sharing
       // a cache level PUs sharing a NUMA-node have a distance of 1 by
       // definition. Pus how don't share a NUMA-node have a distance of > 1.
@@ -170,7 +166,7 @@ public:
       // smaller We define the distance between PUs sharing the L1 cache as 1/
       // distance divider. Ergo the distance for the L2 cache is 2 / distance
       // divider, and so on.
-      // Why 100?: readable by humans and at leat 100 cache levels are
+      // Why 100?: readable by humans and at least 100 cache levels are
       // requried to collide with NUMA distances which is very unlikely.
       const float distance_divider = 100.0;
       int current_cache_lvl = 1;
@@ -247,11 +243,8 @@ public:
       // If NUMA distance matrix is not available it is assumed that all PUs
       // have the same distance
       if (!distance_matrix || !distance_matrix->latency) {
-        xxx(current_pu_set, "No NUMA found");
         dist_map = traverse_caches(topo, current_pu_set);
-        xxx(current_pu_set, dist_map);
       } else {
-        xxx(current_pu_set, "NUMA found");
         auto cache_dist_map = traverse_caches(topo, current_pu_set);
         auto node_dist_map = traverse_numa_nodes(
           topo, distance_matrix, current_pu_set, current_node_set);
@@ -279,13 +272,10 @@ public:
           // cache_dist_map
           dist_map.swap(cache_dist_map);
         }
-        xxx(current_pu_set, dist_map);
       }
-      std::cout << "well done sebastian ..." << std::endl;
       // return PU matrix sorted by its distance
       result_matrix.reserve(dist_map.size());
       for (auto& pu_set_it : dist_map) {
-        xxx(current_pu_set, "A1");
         std::vector<Worker*> current_lvl;
         auto pu_set = pu_set_it.second.get();
         for (pu_id_t pu_id = hwloc_bitmap_first(pu_set); pu_id != -1;
@@ -296,7 +286,6 @@ public:
           if (worker_id_it != cdata.worker_id_map.end())
             current_lvl.emplace_back(worker_id_it->second);
         }
-        xxx(current_pu_set, "A2");
         // current_lvl can be empty if all pus of NUMA node are deactivated
         if (!current_lvl.empty()) {
           // The number of workers in current_lvl must be larger then in the
@@ -310,9 +299,7 @@ public:
             result_matrix.emplace_back(std::move(current_lvl));
           }
         }
-        xxx(current_pu_set, "A3");
       }
-      xxx(current_pu_set, "B");
       //accumulate scheduler_lvls - each lvl contains all lower lvls
       auto last_lvl_it = result_matrix.begin();
       for (auto current_lvl_it = result_matrix.begin();
@@ -322,8 +309,19 @@ public:
                     std::back_inserter(*current_lvl_it));
           ++last_lvl_it;
         }
-      } 
-      xxx(current_pu_set, "C");
+      }
+
+      if (check_pu_id(current_pu_set)) {
+        int distance = 0;
+        for (auto& neighbors : result_matrix) {
+          std::cout << "result_matix distance_idx: " << distance++ << std::endl;
+          std::cout << " -- ";  
+          for (auto neighbor : neighbors) {
+            std::cout << neighbor->to_string() << "; ";
+          }
+          std::cout << std::endl;
+        }
+      }
       return result_matrix;
     }
   
