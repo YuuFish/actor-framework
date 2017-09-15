@@ -287,16 +287,9 @@ public:
           if (worker_id_it != cdata.worker_id_map.end())
             current_lvl.emplace_back(worker_id_it->second);
         }
-        // current_lvl can be empty if all pus of NUMA node are deactivated
+        // current_lvl can be empty if pus of this level are deactivated
         if (!current_lvl.empty()) {
-          // The number of workers in current_lvl must be larger then in the
-          // previous lvl (if exist).
-          // If it is smaller something is wrong (should not be possible).
-          // If they have the same size, its the same lvl (possible when lvls
-          // are created from different sources)
-          if (result_matrix.empty()
-              || current_lvl.size()
-                   > result_matrix[result_matrix.size() - 1].size()) {
+          if (result_matrix.empty()) {
             result_matrix.emplace_back(std::move(current_lvl));
           }
         }
