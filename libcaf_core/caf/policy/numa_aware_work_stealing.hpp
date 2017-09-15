@@ -289,9 +289,7 @@ public:
         }
         // current_lvl can be empty if pus of this level are deactivated
         if (!current_lvl.empty()) {
-          if (result_matrix.empty()) {
-            result_matrix.emplace_back(std::move(current_lvl));
-          }
+          result_matrix.emplace_back(std::move(current_lvl));
         }
       }
       //accumulate scheduler_lvls - each lvl contains all lower lvls
