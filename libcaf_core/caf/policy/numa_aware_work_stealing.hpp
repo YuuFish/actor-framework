@@ -262,10 +262,11 @@ public:
           for (auto& e : cache_dist_map) {
             hwloc_bitmap_andnot(local_node_set, local_node_set, e.second.get());
           }
+          wp_matrix_numa_idx = cache_dist_map.size();
           if (hwloc_bitmap_iszero(local_node_set)) {
             node_dist_map.erase(local_node_pu_set_it);
+            --wp_matrix_numa_idx;
           }
-          wp_matrix_numa_idx = cache_dist_map.size(); ?? falsch
           node_dist_map.insert(make_move_iterator(begin(cache_dist_map)),
                                make_move_iterator(end(cache_dist_map)));
           dist_map.swap(node_dist_map);
@@ -325,7 +326,7 @@ public:
     // from it and the central scheduling unit can push new jobs to the queue.
     queue_type queue;
     worker_proximity_matrix_t wp_matrix;
-    // Defines the index in wp_matrix which the local NUMA-node.
+    // Defines the index in wp_matrix which references the local NUMA-node.
     // wp_matrix_numa_idx is -1 if no neigbhors exist.
     int wp_matrix_numa_idx;
     std::default_random_engine rengine;
