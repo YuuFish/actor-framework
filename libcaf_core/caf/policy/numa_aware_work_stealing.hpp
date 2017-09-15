@@ -273,6 +273,7 @@ public:
           dist_map.swap(cache_dist_map);
         }
       }
+      xxx(current_pu_set, dist_map);
       // return PU matrix sorted by its distance
       result_matrix.reserve(dist_map.size());
       for (auto& pu_set_it : dist_map) {
