@@ -244,6 +244,7 @@ public:
       // have the same distance
       if (!distance_matrix || !distance_matrix->latency) {
         dist_map = traverse_caches(topo, current_pu_set);
+        wp_matrix_numa_idx = dist_map.size() - 1;
       } else {
         auto cache_dist_map = traverse_caches(topo, current_pu_set);
         auto node_dist_map = traverse_numa_nodes(
@@ -255,7 +256,7 @@ public:
         // intersections and must be merge with caution.
         auto local_node_pu_set_it = node_dist_map.begin();
         if (local_node_pu_set_it != node_dist_map.end()) {
-          // remove all pus collected in cache_node_map from the
+          // remove all pus collected in cache_dist_map from the
           // local_node_pu_set
           auto local_node_set = local_node_pu_set_it->second.get();
           for (auto& e : cache_dist_map) {
@@ -264,6 +265,7 @@ public:
           if (hwloc_bitmap_iszero(local_node_set)) {
             node_dist_map.erase(local_node_pu_set_it);
           }
+          wp_matrix_numa_idx = cache_dist_map.size(); ?? falsch
           node_dist_map.insert(make_move_iterator(begin(cache_dist_map)),
                                make_move_iterator(end(cache_dist_map)));
           dist_map.swap(node_dist_map);
@@ -271,6 +273,7 @@ public:
           // if node_dist_map is empty for some reason fallback to
           // cache_dist_map
           dist_map.swap(cache_dist_map);
+          wp_matrix_numa_idx = dist_map.size() - 1;
         }
       }
       xxx(current_pu_set, dist_map);
@@ -304,9 +307,10 @@ public:
       }
 
       if (check_pu_id(current_pu_set)) {
-        int distance = 0;
+        int distance_idx = 0;
+        std::cout << "wp_matrix_numa_idx: " << wp_matrix_numa_idx << std::endl;
         for (auto& neighbors : result_matrix) {
-          std::cout << "result_matix distance_idx: " << distance++ << std::endl;
+          std::cout << "result_matix distance_idx: " << distance_idx++ << std::endl;
           std::cout << " -- ";  
           for (auto neighbor : neighbors) {
             std::cout << neighbor->to_string() << "; ";
@@ -321,7 +325,9 @@ public:
     // from it and the central scheduling unit can push new jobs to the queue.
     queue_type queue;
     worker_proximity_matrix_t wp_matrix;
-    size_t wp_matrix_numa_idx;
+    // Defines the index in wp_matrix which the local NUMA-node.
+    // wp_matrix_numa_idx is -1 if no neigbhors exist.
+    int wp_matrix_numa_idx;
     std::default_random_engine rengine;
     std::uniform_int_distribution<size_t> uniform;
     std::vector<poll_strategy> strategies;
