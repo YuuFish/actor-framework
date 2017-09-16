@@ -264,9 +264,11 @@ public:
   size_t work_stealing_relaxed_steal_interval;
   size_t work_stealing_relaxed_sleep_duration_us;
 
-  // -- config parameters for numa aware work-stealing -------------------------
+  // -- config parameters for locality guided scheduling (LGS) -----------------
 
-  size_t numa_aware_work_stealing_neighborhood_level;
+  //possible granularities: cache, numa, system
+  atom_value lgs_actor_pinnning_proximity_granularity; ???
+  atom_value lgs_actor_weighted_work_stealing_proximity_granularity;
  
   // -- config parameters for the logger ---------------------------------------
 
