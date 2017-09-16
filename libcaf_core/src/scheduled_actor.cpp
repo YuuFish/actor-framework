@@ -138,8 +138,10 @@ void scheduled_actor::enqueue(mailbox_element_ptr ptr, execution_unit* eu) {
       } else {
         if (eu) {
           // msg is received from an other scheduled actor
-          if (eu == home_eu_ || eu->is_neighbor(home_eu_)) {
-            eu->exec_later(this, true); // internal enqueue
+          //if (eu == home_eu_ || eu->is_neighbor(home_eu_)) {
+            //eu->exec_later(this, true); // internal enqueue
+          if (eu == home_eu_) {
+            home_eu_->exec_later(this, true); // internal enqueue
           } else {
             // `eu` has a high memory distance to this actor
             home_eu_->exec_later(this, false); // external enqueued
